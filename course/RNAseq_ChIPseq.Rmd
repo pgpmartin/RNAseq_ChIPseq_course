@@ -1,0 +1,43 @@
+---
+title: "RNA-seq and ChIP-seq"
+author: "Pascal"
+date: "8 octobre 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## RNA-seq
+
+### Raw reads - QC - Trimming
+
+### Alignment
+
+### Differential analysis
+
+### Expression levels
+
+### Profiles for genome browser
+
+  
+## ChIP-seq
+
+### Raw reads - QC - Trimming
+
+### Alignment and profiles
+
+### Peak calling
+
+### Peak annotation
+
+### Extracting profiles around genomic features
+
+Average profiles and heatmaps
+
+### Extracting sequences for motif search
+
+biostring
+
+
