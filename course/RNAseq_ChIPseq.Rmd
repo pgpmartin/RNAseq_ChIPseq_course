@@ -3,15 +3,109 @@ title: "RNA-seq and ChIP-seq"
 author: "Pascal"
 date: "8 octobre 2018"
 output: html_document
+bibliography: RNAseqChIPseq.bibtex
+csl: cell.csl
+highlight: github
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+The data analyzed here come from [GSE70408](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70408) [@pmid26279188].  
+  
+Transcription by __RNA polymerase II__ (RNAPII) involves several steps:  
+
+* Promoter opening under the effect of __transcription factors__ (TFs) and their __cofactors__ (chromatin modifiers and remodelers, mediator)  
+* Assembly of the __preinitiation complex__ (PIC)  
+* Promoter __escape__  
+* For a large fraction of metazoan genes: __Promoter-proximal pausing__ of RNAPII  
+* Productive __elongation__  
+* Transcription __termination__  
+* At least in certain cases RNAPII __recycling__  
+  
+The article describes the role of the __transcription elongation factor PAF1__ on RNAPII promoter-proximal pausing. The authors use a number of different genome-wide approaches in Human and Drosophila cells to study the location of PAF1 and the effect of its knock-down on RNAPII distribution and RNA expression.  
+
+Here, we will focus on the RNA-seq and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of  Drosophila melanogaster or Arabidopsis thaliana whole genome).
+
+## Data download and formatting
+
+### Annotations
+We download the annotations from Gencode:
+
+
+### RNA-seq / ChIP-seq reads
+We can download individual fastq files such as:
+```{bash eval=FALSE}
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/008/SRR2084598/SRR2084598.fastq.gz
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/009/SRR2084599/SRR2084599.fastq.gz
+```
+
+We can also download the SRA file (lighter) and then extract the fastq file using the [SRA toolkit](https://www.ncbi.nlm.nih.gov/books/NBK158900/) but this is rather slow too:
+```{bash, eval=FALSE}
+wget ftp://ftp.sra.ebi.ac.uk/vol1/srr/SRR208/008/SRR2084598
+fastq-dump SRR2084598
+```
+
+A very nice tutorial on how to download such large files faster is available [here](https://www.biostars.org/p/325010/).  
+First install Aspera client:
+```{bash, eval=FALSE}
+## Download the tarball:
+wget https://download.asperasoft.com/download/sw/connect/3.8.0/ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
+## Decompress:
+tar zxvf ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
+## Make it executable:
+chmod +x ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
+## and run the installer:
+./ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
+```
+
+Then go to the [EBI ENA](https://www.ebi.ac.uk/ena) and search for `GSE70408`  
+In the experiment page, select columns:
+ __Study accession__,
+ __Library Layout__,
+ __FASTQ files (FTP)__ and
+ __Experiment title__
+and export the table as text.  
+
+Now we extract the files we want and prepare the links for fast download:
+```{r eval=FALSE}
+#All the files:
+gse70408 <- read.table(file.path("../data","PRJNA288695.txt"), 
+                       sep="\t", header=T)
+
+#Selected files:
+selgse70408 <- gse70408[c(
+                    grep("total.RNA", gse70408[,2]),
+                    grep("PAF1_WT", gse70408[,2])),]
+
+#Format the links for aspera client:
+selgse70408$fasp_link <- gsub("ftp.sra.ebi.ac.uk",
+                              "era-fasp@fasp.sra.ebi.ac.uk:",
+                              selgse70408$fastq_ftp)
+
+#save the links
+write.table(selgse70408$fasp_link,
+            file.path("../data/downloadSelectedGSE70408.txt"),
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+Then we start the downlad using:
+```{bash eval=FALSE}
+cat downloadSelectedGSE70408.txt | while read LIST
+  do
+  $HOME/.aspera/connect/bin/ascp -QT -l 300m -P33001 -i $HOME/.aspera/connect/etc/asperaweb_id_dsa.openssh $LIST .
+  done
+```
+
+
 ## RNA-seq
 
 ### Raw reads - QC - Trimming
+
+
+with python, see also: http://rseqc.sourceforge.net/
+
 
 ### Alignment
 
@@ -40,4 +134,7 @@ Average profiles and heatmaps
 
 biostring
 
+
+
+### References:  
 
