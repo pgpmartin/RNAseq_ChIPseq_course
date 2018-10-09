@@ -12,6 +12,14 @@ highlight: github
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Data and session setup  
+
+_In this document, the commands corresponding to module loading are intended to be run on the genologin cluster (see [bioinformatic platform](http://bioinfo.genotoul.fr/))_  
+_Alternatively, install individual tools (links provided in this document) or use [bioconda](https://bioconda.github.io/)_
+
+
+### Data presentation 
+
 The data analyzed here come from [GSE70408](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70408) [@pmid26279188].  
   
 Transcription by __RNA polymerase II__ (RNAPII) involves several steps:  
@@ -24,42 +32,149 @@ Transcription by __RNA polymerase II__ (RNAPII) involves several steps:
 * Transcription __termination__  
 * At least in certain cases RNAPII __recycling__  
   
-The article describes the role of the __transcription elongation factor PAF1__ on RNAPII promoter-proximal pausing. The authors use a number of different genome-wide approaches in Human and Drosophila cells to study the location of PAF1 and the effect of its knock-down on RNAPII distribution and RNA expression.  
+The article describes the role of the __transcription elongation factor PAF1__ on RNAPII promoter-proximal pausing. The authors use different genome-wide approaches in Human and Drosophila cells to study the location of PAF1 and the effect of its knock-down on RNAPII distribution and RNA expression.  
 
-Here, we will focus on the RNA-seq and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of  Drosophila melanogaster or Arabidopsis thaliana whole genome).
+Here, we focus on the RNA-seq data and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of  Drosophila melanogaster or Arabidopsis thaliana whole genome).  
+  
 
-## Data download and formatting
+### Session setup  
 
-### Annotations
-We download the annotations from Gencode:
+Prepare the folders in which the analysis will be performed:
+```{bash eval=FALSE}
+basedir="/work/pmartin/PROJECTS/RNAseqChIPseq"
+# replace pmartin by your username if you work on GenoToul cluster
 
+mkdir ${basedir}/RNAseq
+mkdir ${basedir}/ChIPseq
+mkdir ${basedir}/bank
+mkdir ${basedir}/log
 
-### RNA-seq / ChIP-seq reads
-We can download individual fastq files such as:
+selectedChromosomes="chr19 chr20"
+```
+  
+  
+
+### Sequences, annotations and indexes  
+
+The genome sequences and annotations are downloaded from [Gencode](https://www.gencodegenes.org/).  
+
+#### Genome sequence (fasta)  
+
+Download the whole genome sequence:
+```{bash eval=FALSE}
+cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/GRCh38.primary_assembly.genome.fa.gz
+gunzip GRCh38.primary_assembly.genome.fa.gz
+```
+
+Then:  
+
+* index the fasta file with [samtools](http://www.htslib.org/)  
+* extract the sequences of chr19 and chr20 an index  
+* delete the large fasta file containing the whole genome sequence  
+```{bash eval=FALSE}
+cd ${basedir}/bank
+module load bioinfo/samtools-1.8 #on genologin cluster
+samtools index GRCh38.primary_assembly.genome.fa
+samtools faidx GRCh38.primary_assembly.genome.fa ${selectedChromosomes} > GRCh38.primary_assembly.chr1920.fa
+samtools index GRCh38.primary_assembly.chr1920.fa
+rm GRCh38.primary_assembly.genome.fa
+```
+  
+  
+
+#### Annotations (GTF file):  
+
+We download the annotations:
+```{bash eval=FALSE}
+cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.annotation.gtf.gz
+gunzip gencode.v28.annotation.gtf.gz
+
+```
+  
+And select the annotations from chr19 and chr20 only:
+```{bash eval=FALSE}
+awk '$1 ~ /^##.+/ || $1=="chr19"|| $1=="chr20"' \
+gencode.v28.annotation.gtf \
+> \
+gencode.v28.annotation_chr1920.gtf
+
+#Cleanup
+rm gencode.v28.annotation.gtf
+```
+  
+  
+#### STAR index:  
+
+[STAR](https://github.com/alexdobin/STAR) is a powerful short read aligner dedicated to RNA-seq [@pmid23104886].
+While a very fast aligner, it requires relatively large amounts of RAM.  
+[HiSat2](https://ccb.jhu.edu/software/hisat2/index.shtml) is a popular alternative [@pmid27560171; @pmid25751142]
+
+Before running alignments with STAR, we need to generate genome indexes:
+```{bash eval=FALSE}
+mkdir ${basedir}/bank/star_index
+module load bioinfo/STAR-2.6.0c #on genologin cluster
+
+STAR \
+--runThreadN 4 \
+--runMode genomeGenerate \
+--genomeDir ${basedir}/bank/star_index \
+--genomeFastaFiles ${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+--sjdbGTFfile ${basedir}/bank/gencode.v28.annotation_chr1920.gtf \
+
+```
+
+#### Bowtie2 index:  
+
+Popular short read aligners include [Bowtie2](http://bowtie-bio.sourceforge.net/bowtie2) [@pmid22388286] and [bwa](http://bio-bwa.sourceforge.net/) [@pmid19451168; @pmid20080505].  
+
+We use bowtie2 here and build the genome index using:  
+```{bash eval=FALSE}
+mkdir ${basedir}/bank/bowtie2_index
+module load bioinfo/bowtie2-2.3.4.1 #on genologin cluster
+
+bowtie2-build \
+--threads 4 \
+--seed 123 \
+${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920 \
+
+```
+
+  
+
+#### Transcripts sequences:  
+
+Some recent so-called "alignment-free" methods such as [kallisto](https://pachterlab.github.io/kallisto/) [@pmid27043002] and [Salmon](https://combine-lab.github.io/salmon/) [@pmid28263959] do not perform a classical alignment of reads on the genome prior to assigning reads to genomic features (genes/transcripts). Rather, they rely on matching catalogs of k-mers obtained from the transcriptome on one hand and the reads on the other hands.  
+  
+For these methods, we need the sequences of all transcripts:
+```{bash eval =FALSE}
+cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.transcripts.fa.gz
+```
+  
+  
+### Raw data (reads)  
+
+The [EBI European Nucleotide Archive](https://www.ebi.ac.uk/ena) is a convenient way to access NGS data. In particular, it includes a copy of the [NCBI Short Read archive](https://www.ncbi.nlm.nih.gov/sra).  
+
+Individual fastq files can be downloaded, such as:
 ```{bash eval=FALSE}
 wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/008/SRR2084598/SRR2084598.fastq.gz
 wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/009/SRR2084599/SRR2084599.fastq.gz
 ```
-
-We can also download the SRA file (lighter) and then extract the fastq file using the [SRA toolkit](https://www.ncbi.nlm.nih.gov/books/NBK158900/) but this is rather slow too:
+  
+We can also download the SRA file (lighter) and then extract the fastq file using the [SRA toolkit](https://www.ncbi.nlm.nih.gov/books/NBK158900/) but this is rather slow too:  
 ```{bash, eval=FALSE}
 wget ftp://ftp.sra.ebi.ac.uk/vol1/srr/SRR208/008/SRR2084598
 fastq-dump SRR2084598
 ```
-
+  
 A very nice tutorial on how to download such large files faster is available [here](https://www.biostars.org/p/325010/).  
-First install Aspera client:
-```{bash, eval=FALSE}
-## Download the tarball:
-wget https://download.asperasoft.com/download/sw/connect/3.8.0/ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Decompress:
-tar zxvf ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Make it executable:
-chmod +x ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
-## and run the installer:
-./ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
-```
-
+  
+First install the [Aspera client](http://www.asperasoft.com/en/downloads/2).  
+  
 Then go to the [EBI ENA](https://www.ebi.ac.uk/ena) and search for `GSE70408`  
 In the experiment page, select columns:
  __Study accession__,
@@ -68,8 +183,8 @@ In the experiment page, select columns:
  __Experiment title__
 and export the table as text.  
 
-Now we extract the files we want and prepare the links for fast download:
-```{r eval=FALSE}
+Now we use [R](https://www.r-project.org/) to extract the files we want and prepare the links for fast download:
+```{r, eval=FALSE}
 #All the files:
 gse70408 <- read.table(file.path("../data","PRJNA288695.txt"), 
                        sep="\t", header=T)
@@ -90,7 +205,7 @@ write.table(selgse70408$fasp_link,
             row.names = FALSE, col.names = FALSE, quote = FALSE)
 ```
 
-Then we start the downlad using:
+Then download all the selected files using:
 ```{bash eval=FALSE}
 cat downloadSelectedGSE70408.txt | while read LIST
   do
@@ -98,22 +213,87 @@ cat downloadSelectedGSE70408.txt | while read LIST
   done
 ```
 
+I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus ~5% of unmapped reads to make it more realistic `r emo::ji("wink")`). The filtered reads are in the data folder.
+
 
 ## RNA-seq
 
+
 ### Raw reads - QC - Trimming
 
+#### QC
+Quality controls on raw reads can be done with [fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/).  
+More advanced QC can also be performed using e.g. [RSeQC](http://rseqc.sourceforge.net/).  
+Note that in RNA-seq (and other applications as well) it is often desirable to compare the QC obtained from different samples. [MultiQC](https://multiqc.info/) is an excellent tool to facilite this task.
 
-with python, see also: http://rseqc.sourceforge.net/
+```{bash, eval=FALSE}
+mkdir ${basedir}/RNAseq/rawQC
+module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 
+for fn in SRR20845{96..99}
+  do
+
+  fastqc \
+    -o ${basedir}/RNAseq/rawQC \
+    ${basedir}/data/FilteredFastq/${fn}_chr1920.fq.gz \
+    
+  done
+```
+  
+  
+
+#### Trimming  
+
+In many cases RNA-seq reads do not require trimming. If you notice a lot of adapter contamination, you can use [cutadapt](https://cutadapt.readthedocs.io/en/stable/guide.html) or [Trimmomatic](http://www.usadellab.org/cms/?page=trimmomatic) for example.  
+  
+Note that [fastp](https://github.com/OpenGene/fastp), a recently developed tool integrates automatic trimming (and adapter detection) with pre- and post-filtering QC [@doi:10.1093/bioinformatics/bty560].  
+  
+  
 
 ### Alignment
 
-### Differential analysis
+Align the reads to the "genome" (here only chr19 and chr20) using STAR:
+```{bash eval=FALSE}
+mkdir ${basedir}/RNAseq/Aligned
+module load bioinfo/STAR-2.6.0c #on genologin cluster
 
-### Expression levels
+fastqdir=${basedir}/data/FilteredFastq
 
-### Profiles for genome browser
+STAR \
+--runMode alignReads \
+--runThreadN 4 \
+--genomeDir ${basedir}/bank/star_index \
+--readFilesIn ${fastqdir}/SRR2084596,${fastqdir}/SRR2084597,${fastqdir}/SRR2084598,${fastqdir}/SRR2084599 \
+--readFilesCommand zcat \
+--outFileNamePrefix ${basedir}/RNAseq/Aligned/ \
+--outSAMtype BAM SortedByCoordinate \
+--quantMode TranscriptomeSAM GeneCounts\
+--outWigType bedGraph \
+
+    
+
+```
+The option `--quantmode TranscriptomeSAM` produces the alignments in the coordinates of the transcriptome.  
+The option `--quantmode GeneCounts` produces a table with counts of reads per gene.  
+The option `--outWigType bedGraph` produces bedgraph files that can be used to vizualize the data in a genome browser.  
+
+
+
+### Counting and differential expression analysis
+
+### Obtaining expression levels
+
+Strongly relies on the estimation of transcript sizes.
+RPKM in R
+TPM from RSEM
+quantif using Salmon (or kallisto)
+
+
+### Signal files for genome browser
+bedgraph, bigwig format
+coverages and rtracklayer
+use star to generate the bedgraph files
+
 
   
 ## ChIP-seq

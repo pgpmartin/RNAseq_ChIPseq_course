@@ -4,5 +4,7 @@
 .Ruserdata
 *.Rproj
 paper
-
+bin
+data
+course/*.html
 

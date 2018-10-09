@@ -125,6 +125,12 @@ $(document).ready(function () {
 </div>
 
 
+<div id="data-and-session-setup" class="section level2">
+<h2>Data and session setup</h2>
+<p><em>In this document, the commands corresponding to module loading are intended to be run on the genologin cluster (see <a href="http://bioinfo.genotoul.fr/">bioinformatic platform</a>)</em><br />
+<em>Alternatively, install individual tools (links provided in this document) or use <a href="https://bioconda.github.io/">bioconda</a></em></p>
+<div id="data-presentation" class="section level3">
+<h3>Data presentation</h3>
 <p>The data analyzed here come from <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70408">GSE70408</a> <span class="citation">(Chen et al., 2015)</span>.</p>
 <p>Transcription by <strong>RNA polymerase II</strong> (RNAPII) involves several steps:</p>
 <ul>
@@ -142,31 +148,114 @@ $(document).ready(function () {
 </li>
 <li>At least in certain cases RNAPII <strong>recycling</strong></li>
 </ul>
-<p>The article describes the role of the <strong>transcription elongation factor PAF1</strong> on RNAPII promoter-proximal pausing. The authors use a number of different genome-wide approaches in Human and Drosophila cells to study the location of PAF1 and the effect of its knock-down on RNAPII distribution and RNA expression.</p>
-<p>Here, we will focus on the RNA-seq and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of Drosophila melanogaster or Arabidopsis thaliana whole genome).</p>
-<div id="rna-seq" class="section level2">
-<h2>RNA-seq</h2>
-<div id="obtaining-the-data" class="section level3">
-<h3>Obtaining the data</h3>
-<p>We can download individual fastq files such as:</p>
+<p>The article describes the role of the <strong>transcription elongation factor PAF1</strong> on RNAPII promoter-proximal pausing. The authors use different genome-wide approaches in Human and Drosophila cells to study the location of PAF1 and the effect of its knock-down on RNAPII distribution and RNA expression.</p>
+<p>Here, we focus on the RNA-seq data and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of Drosophila melanogaster or Arabidopsis thaliana whole genome).</p>
+</div>
+<div id="session-setup" class="section level3">
+<h3>Session setup</h3>
+<p>Prepare the folders in which the analysis will be performed:</p>
+<pre class="bash"><code>basedir=&quot;/work/pmartin/PROJECTS/RNAseqChIPseq&quot;
+# replace pmartin by your username if you work on GenoToul cluster
+
+mkdir ${basedir}/RNAseq
+mkdir ${basedir}/ChIPseq
+mkdir ${basedir}/bank
+mkdir ${basedir}/log
+
+selectedChromosomes=&quot;chr19 chr20&quot;</code></pre>
+</div>
+<div id="sequences-annotations-and-indexes" class="section level3">
+<h3>Sequences, annotations and indexes</h3>
+<p>The genome sequences and annotations are downloaded from <a href="https://www.gencodegenes.org/">Gencode</a>.</p>
+<div id="genome-sequence-fasta" class="section level4">
+<h4>Genome sequence (fasta)</h4>
+<p>Download the whole genome sequence:</p>
+<pre class="bash"><code>cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/GRCh38.primary_assembly.genome.fa.gz
+gunzip GRCh38.primary_assembly.genome.fa.gz</code></pre>
+<p>Then:</p>
+<ul>
+<li>index the fasta file with <a href="http://www.htslib.org/">samtools</a><br />
+</li>
+<li>extract the sequences of chr19 and chr20 an index<br />
+</li>
+<li>delete the large fasta file containing the whole genome sequence</li>
+</ul>
+<pre class="bash"><code>cd ${basedir}/bank
+module load bioinfo/samtools-1.8 #on genologin cluster
+samtools index GRCh38.primary_assembly.genome.fa
+samtools faidx GRCh38.primary_assembly.genome.fa ${selectedChromosomes} &gt; GRCh38.primary_assembly.chr1920.fa
+samtools index GRCh38.primary_assembly.chr1920.fa
+rm GRCh38.primary_assembly.genome.fa</code></pre>
+</div>
+<div id="annotations-gtf-file" class="section level4">
+<h4>Annotations (GTF file):</h4>
+<p>We download the annotations:</p>
+<pre class="bash"><code>cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.annotation.gtf.gz
+gunzip gencode.v28.annotation.gtf.gz
+</code></pre>
+<p>And select the annotations from chr19 and chr20 only:</p>
+<pre class="bash"><code>awk '$1 ~ /^##.+/ || $1==&quot;chr19&quot;|| $1==&quot;chr20&quot;' \
+gencode.v28.annotation.gtf \
+&gt; \
+gencode.v28.annotation_chr1920.gtf
+
+#Cleanup
+rm gencode.v28.annotation.gtf</code></pre>
+</div>
+<div id="star-index" class="section level4">
+<h4>STAR index:</h4>
+<p><a href="https://github.com/alexdobin/STAR">STAR</a> is a powerful short read aligner dedicated to RNA-seq <span class="citation">(Dobin et al., 2013)</span>. While a very fast aligner, it requires relatively large amounts of RAM.<br />
+<a href="https://ccb.jhu.edu/software/hisat2/index.shtml">HiSat2</a> is a popular alternative <span class="citation">(Kim et al., 2015; Pertea et al., 2016)</span></p>
+<p>Before running alignments with STAR, we need to generate genome indexes:</p>
+<pre class="bash"><code>mkdir ${basedir}/bank/star_index
+module load bioinfo/STAR-2.6.0c #on genologin cluster
+
+STAR \
+--runThreadN 4 \
+--runMode genomeGenerate \
+--genomeDir ${basedir}/bank/star_index \
+--genomeFastaFiles ${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+--sjdbGTFfile ${basedir}/bank/gencode.v28.annotation_chr1920.gtf \
+</code></pre>
+</div>
+<div id="bowtie2-index" class="section level4">
+<h4>Bowtie2 index:</h4>
+<p>Popular short read aligners include <a href="http://bowtie-bio.sourceforge.net/bowtie2">Bowtie2</a> <span class="citation">(Langmead and Salzberg, 2012)</span> and <a href="http://bio-bwa.sourceforge.net/">bwa</a> <span class="citation">(Li and Durbin, 2009, 2010)</span>.</p>
+<p>We use bowtie2 here and build the genome index using:</p>
+<pre class="bash"><code>mkdir ${basedir}/bank/bowtie2_index
+module load bioinfo/bowtie2-2.3.4.1 #on genologin cluster
+
+bowtie2-build \
+--threads 4 \
+--seed 123 \
+${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920 \
+</code></pre>
+</div>
+<div id="transcripts-sequences" class="section level4">
+<h4>Transcripts sequences:</h4>
+<p>Some recent so-called “alignment-free” methods such as <a href="https://pachterlab.github.io/kallisto/">kallisto</a> <span class="citation">(Bray et al., 2016)</span> and <a href="https://combine-lab.github.io/salmon/">Salmon</a> <span class="citation">(Patro et al., 2017)</span> do not perform a classical alignment of reads on the genome prior to assigning reads to genomic features (genes/transcripts). Rather, they rely on matching catalogs of k-mers obtained from the transcriptome on one hand and the reads on the other hands.</p>
+<p>For these methods, we need the sequences of all transcripts:</p>
+<pre class="bash"><code>cd ${basedir}/bank
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.transcripts.fa.gz</code></pre>
+</div>
+</div>
+<div id="raw-data-reads" class="section level3">
+<h3>Raw data (reads)</h3>
+<p>The <a href="https://www.ebi.ac.uk/ena">EBI European Nucleotide Archive</a> is a convenient way to access NGS data. In particular, it includes a copy of the <a href="https://www.ncbi.nlm.nih.gov/sra">NCBI Short Read archive</a>.</p>
+<p>Individual fastq files can be downloaded, such as:</p>
 <pre class="bash"><code>wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/008/SRR2084598/SRR2084598.fastq.gz
 wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/009/SRR2084599/SRR2084599.fastq.gz</code></pre>
 <p>We can also download the SRA file (lighter) and then extract the fastq file using the <a href="https://www.ncbi.nlm.nih.gov/books/NBK158900/">SRA toolkit</a> but this is rather slow too:</p>
 <pre class="bash"><code>wget ftp://ftp.sra.ebi.ac.uk/vol1/srr/SRR208/008/SRR2084598
 fastq-dump SRR2084598</code></pre>
-<p>A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.<br />
-First install Aspera client:</p>
-<pre class="bash"><code>## Download the tarball:
-wget https://download.asperasoft.com/download/sw/connect/3.8.0/ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Decompress:
-tar zxvf ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Make it executable:
-chmod +x ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
-## and run the installer:
-./ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh</code></pre>
+<p>A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.</p>
+<p>First install the <a href="http://www.asperasoft.com/en/downloads/2">Aspera client</a>.</p>
 <p>Then go to the <a href="https://www.ebi.ac.uk/ena">EBI ENA</a> and search for <code>GSE70408</code><br />
 In the experiment page, select columns: <strong>Study accession</strong>, <strong>Library Layout</strong>, <strong>FASTQ files (FTP)</strong> and <strong>Experiment title</strong> and export the table as text.</p>
-<p>Now we extract the files we want and prepare the links for fast download:</p>
+<p>Now we use <a href="https://www.r-project.org/">R</a> to extract the files we want and prepare the links for fast download:</p>
 <pre class="r"><code>#All the files:
 gse70408 &lt;- read.table(file.path(&quot;../data&quot;,&quot;PRJNA288695.txt&quot;), 
                        sep=&quot;\t&quot;, header=T)
@@ -185,27 +274,76 @@ selgse70408$fasp_link &lt;- gsub(&quot;ftp.sra.ebi.ac.uk&quot;,
 write.table(selgse70408$fasp_link,
             file.path(&quot;../data/downloadSelectedGSE70408.txt&quot;),
             row.names = FALSE, col.names = FALSE, quote = FALSE)</code></pre>
-<p>Then we start the downlad using:</p>
+<p>Then download all the selected files using:</p>
 <pre class="bash"><code>cat downloadSelectedGSE70408.txt | while read LIST
   do
   $HOME/.aspera/connect/bin/ascp -QT -l 300m -P33001 -i $HOME/.aspera/connect/etc/asperaweb_id_dsa.openssh $LIST .
   done</code></pre>
+<p>I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus ~5% of unmapped reads to make it more realistic 😉). The filtered reads are in the data folder.</p>
 </div>
+</div>
+<div id="rna-seq" class="section level2">
+<h2>RNA-seq</h2>
 <div id="raw-reads---qc---trimming" class="section level3">
 <h3>Raw reads - QC - Trimming</h3>
-<p>with python, see also: <a href="http://rseqc.sourceforge.net/" class="uri">http://rseqc.sourceforge.net/</a></p>
+<div id="qc" class="section level4">
+<h4>QC</h4>
+<p>Quality controls on raw reads can be done with <a href="https://www.bioinformatics.babraham.ac.uk/projects/fastqc/">fastqc</a>.<br />
+More advanced QC can also be performed using e.g. <a href="http://rseqc.sourceforge.net/">RSeQC</a>.<br />
+Note that in RNA-seq (and other applications as well) it is often desirable to compare the QC obtained from different samples. <a href="https://multiqc.info/">MultiQC</a> is an excellent tool to facilite this task.</p>
+<pre class="bash"><code>mkdir ${basedir}/RNAseq/rawQC
+module load bioinfo/FastQC_v0.11.7 #on genologin cluster
+
+for fn in SRR20845{96..99}
+  do
+
+  fastqc \
+    -o ${basedir}/RNAseq/rawQC \
+    ${basedir}/data/FilteredFastq/${fn}_chr1920.fq.gz \
+    
+  done</code></pre>
+</div>
+<div id="trimming" class="section level4">
+<h4>Trimming</h4>
+<p>In many cases RNA-seq reads do not require trimming. If you notice a lot of adapter contamination, you can use <a href="https://cutadapt.readthedocs.io/en/stable/guide.html">cutadapt</a> or <a href="http://www.usadellab.org/cms/?page=trimmomatic">Trimmomatic</a> for example.</p>
+<p>Note that <a href="https://github.com/OpenGene/fastp">fastp</a>, a recently developed tool integrates automatic trimming (and adapter detection) with pre- and post-filtering QC <span class="citation">(Chen et al., 2018)</span>.</p>
+</div>
 </div>
 <div id="alignment" class="section level3">
 <h3>Alignment</h3>
+<p>Align the reads to the “genome” (here only chr19 and chr20) using STAR:</p>
+<pre class="bash"><code>mkdir ${basedir}/RNAseq/Aligned
+module load bioinfo/STAR-2.6.0c #on genologin cluster
+
+fastqdir=${basedir}/data/FilteredFastq
+
+STAR \
+--runMode alignReads \
+--runThreadN 4 \
+--genomeDir ${basedir}/bank/star_index \
+--readFilesIn ${fastqdir}/SRR2084596,${fastqdir}/SRR2084597,${fastqdir}/SRR2084598,${fastqdir}/SRR2084599 \
+--readFilesCommand zcat \
+--outFileNamePrefix ${basedir}/RNAseq/Aligned/ \
+--outSAMtype BAM SortedByCoordinate \
+--quantMode TranscriptomeSAM GeneCounts\
+--outWigType bedGraph \
+
+    
+</code></pre>
+<p>The option <code>--quantmode TranscriptomeSAM</code> produces the alignments in the coordinates of the transcriptome.<br />
+The option <code>--quantmode GeneCounts</code> produces a table with counts of reads per gene.<br />
+The option <code>--outWigType bedGraph</code> produces bedgraph files that can be used to vizualize the data in a genome browser.</p>
 </div>
-<div id="differential-analysis" class="section level3">
-<h3>Differential analysis</h3>
+<div id="counting-and-differential-expression-analysis" class="section level3">
+<h3>Counting and differential expression analysis</h3>
 </div>
-<div id="expression-levels" class="section level3">
-<h3>Expression levels</h3>
+<div id="obtaining-expression-levels" class="section level3">
+<h3>Obtaining expression levels</h3>
+<p>Strongly relies on the estimation of transcript sizes. RPKM in R TPM from RSEM quantif using Salmon (or kallisto)</p>
 </div>
-<div id="profiles-for-genome-browser" class="section level3">
-<h3>Profiles for genome browser</h3>
+<div id="signal-files-for-genome-browser" class="section level3">
+<h3>Signal files for genome browser</h3>
+<p>bedgraph, bigwig format coverages and rtracklayer use star to generate the bedgraph files</p>
 </div>
 </div>
 <div id="chip-seq" class="section level2">
@@ -229,111 +367,39 @@ write.table(selgse70408$fasp_link,
 <div id="extracting-sequences-for-motif-search" class="section level3">
 <h3>Extracting sequences for motif search</h3>
 <p>biostring</p>
-<p>```</p>
-<p>A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.<br />
-First install Aspera client:</p>
-<pre class="bash"><code>## Download the tarball:
-wget https://download.asperasoft.com/download/sw/connect/3.8.0/ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Decompress:
-tar zxvf ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Make it executable:
-chmod +x ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
-## and run the installer:
-./ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh</code></pre>
-<p>Then go to the <a href="https://www.ebi.ac.uk/ena">EBI ENA</a> and search for <code>GSFGSE70408</code></p>
 </div>
-<div id="raw-reads---qc---trimming-2" class="section level3">
-<h3>Raw reads - QC - Trimming</h3>
-<p>with python, see also: <a href="http://rseqc.sourceforge.net/" class="uri">http://rseqc.sourceforge.net/</a></p>
-</div>
-<div id="alignment-1" class="section level3">
-<h3>Alignment</h3>
-</div>
-<div id="differential-analysis-1" class="section level3">
-<h3>Differential analysis</h3>
-</div>
-<div id="expression-levels-1" class="section level3">
-<h3>Expression levels</h3>
-</div>
-<div id="profiles-for-genome-browser-1" class="section level3">
-<h3>Profiles for genome browser</h3>
-</div>
-</div>
-<div id="chip-seq-1" class="section level2">
-<h2>ChIP-seq</h2>
-<div id="raw-reads---qc---trimming-3" class="section level3">
-<h3>Raw reads - QC - Trimming</h3>
-</div>
-<div id="alignment-and-profiles-1" class="section level3">
-<h3>Alignment and profiles</h3>
-</div>
-<div id="peak-calling-1" class="section level3">
-<h3>Peak calling</h3>
-</div>
-<div id="peak-annotation-1" class="section level3">
-<h3>Peak annotation</h3>
-</div>
-<div id="extracting-profiles-around-genomic-features-1" class="section level3">
-<h3>Extracting profiles around genomic features</h3>
-<p>Average profiles and heatmaps</p>
-</div>
-<div id="extracting-sequences-for-motif-search-1" class="section level3">
-<h3>Extracting sequences for motif search</h3>
-<p>biostring</p>
-<p>```</p>
-<p>A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.<br />
-First install Aspera client:</p>
-<pre class="bash"><code>## Download the tarball:
-wget https://download.asperasoft.com/download/sw/connect/3.8.0/ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Decompress:
-tar zxvf ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.tar.gz 
-## Make it executable:
-chmod +x ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh
-## and run the installer:
-./ibm-aspera-connect-3.8.0.158555-linux-g2.12-64.sh</code></pre>
-<p>Then go to the <a href="https://www.ebi.ac.uk/ena">EBI ENA</a> and search for <code>GSFGSE70408</code></p>
-</div>
-<div id="raw-reads---qc---trimming-4" class="section level3">
-<h3>Raw reads - QC - Trimming</h3>
-<p>with python, see also: <a href="http://rseqc.sourceforge.net/" class="uri">http://rseqc.sourceforge.net/</a></p>
-</div>
-<div id="alignment-2" class="section level3">
-<h3>Alignment</h3>
-</div>
-<div id="differential-analysis-2" class="section level3">
-<h3>Differential analysis</h3>
-</div>
-<div id="expression-levels-2" class="section level3">
-<h3>Expression levels</h3>
-</div>
-<div id="profiles-for-genome-browser-2" class="section level3">
-<h3>Profiles for genome browser</h3>
-</div>
-</div>
-<div id="chip-seq-2" class="section level2">
-<h2>ChIP-seq</h2>
-<div id="raw-reads---qc---trimming-5" class="section level3">
-<h3>Raw reads - QC - Trimming</h3>
-</div>
-<div id="alignment-and-profiles-2" class="section level3">
-<h3>Alignment and profiles</h3>
-</div>
-<div id="peak-calling-2" class="section level3">
-<h3>Peak calling</h3>
-</div>
-<div id="peak-annotation-2" class="section level3">
-<h3>Peak annotation</h3>
-</div>
-<div id="extracting-profiles-around-genomic-features-2" class="section level3">
-<h3>Extracting profiles around genomic features</h3>
-<p>Average profiles and heatmaps</p>
-</div>
-<div id="extracting-sequences-for-motif-search-2" class="section level3">
-<h3>Extracting sequences for motif search</h3>
-<p>biostring</p>
+<div id="references" class="section level3 unnumbered">
+<h3>References:</h3>
 <div id="refs" class="references">
+<div id="ref-pmid27043002">
+<p>Bray, N.L., Pimentel, H., Melsted, P., and Pachter, L. (2016). Near-optimal probabilistic RNA-seq quantification. Nat. Biotechnol. <em>34</em>, 525–527.</p>
+</div>
 <div id="ref-pmid26279188">
 <p>Chen, F.X., Woodfin, A.R., Gardini, A., Rickels, R.A., Marshall, S.A., Smith, E.R., Shiekhattar, R., and Shilatifard, A. (2015). PAF1, a Molecular Regulator of Promoter-Proximal Pausing by RNA Polymerase II. Cell <em>162</em>, 1003–1015.</p>
+</div>
+<div id="ref-doi:10.1093/bioinformatics/bty560">
+<p>Chen, S., Zhou, Y., Chen, Y., and Gu, J. (2018). Fastp: An ultra-fast all-in-one fastq preprocessor. Bioinformatics <em>34</em>, i884–i890.</p>
+</div>
+<div id="ref-pmid23104886">
+<p>Dobin, A., Davis, C.A., Schlesinger, F., Drenkow, J., Zaleski, C., Jha, S., Batut, P., Chaisson, M., and Gingeras, T.R. (2013). STAR: ultrafast universal RNA-seq aligner. Bioinformatics <em>29</em>, 15–21.</p>
+</div>
+<div id="ref-pmid25751142">
+<p>Kim, D., Langmead, B., and Salzberg, S.L. (2015). HISAT: a fast spliced aligner with low memory requirements. Nat. Methods <em>12</em>, 357–360.</p>
+</div>
+<div id="ref-pmid22388286">
+<p>Langmead, B., and Salzberg, S.L. (2012). Fast gapped-read alignment with Bowtie 2. Nat. Methods <em>9</em>, 357–359.</p>
+</div>
+<div id="ref-pmid19451168">
+<p>Li, H., and Durbin, R. (2009). Fast and accurate short read alignment with Burrows-Wheeler transform. Bioinformatics <em>25</em>, 1754–1760.</p>
+</div>
+<div id="ref-pmid20080505">
+<p>Li, H., and Durbin, R. (2010). Fast and accurate long-read alignment with Burrows-Wheeler transform. Bioinformatics <em>26</em>, 589–595.</p>
+</div>
+<div id="ref-pmid28263959">
+<p>Patro, R., Duggal, G., Love, M.I., Irizarry, R.A., and Kingsford, C. (2017). Salmon provides fast and bias-aware quantification of transcript expression. Nat. Methods <em>14</em>, 417–419.</p>
+</div>
+<div id="ref-pmid27560171">
+<p>Pertea, M., Kim, D., Pertea, G.M., Leek, J.T., and Salzberg, S.L. (2016). Transcript-level expression analysis of RNA-seq experiments with HISAT, StringTie and Ballgown. Nat Protoc <em>11</em>, 1650–1667.</p>
 </div>
 </div>
 </div>
