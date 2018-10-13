@@ -1,7 +1,7 @@
 ---
 title: "RNA-seq and ChIP-seq"
 author: "Pascal"
-date: "8 octobre 2018"
+date: "14 octobre 2018"
 output: html_document
 bibliography: RNAseqChIPseq.bibtex
 csl: cell.csl
@@ -10,6 +10,7 @@ highlight: github
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(kableExtra)
 ```
 
 ## Data and session setup  
@@ -257,20 +258,23 @@ Align the reads to the "genome" (here only chr19 and chr20) using STAR:
 mkdir ${basedir}/RNAseq/Aligned
 module load bioinfo/STAR-2.6.0c #on genologin cluster
 
-fastqdir=${basedir}/data/FilteredFastq
+fastqdir=${basedir}/data/filteredFastq
 
-STAR \
---runMode alignReads \
---runThreadN 4 \
---genomeDir ${basedir}/bank/star_index \
---readFilesIn ${fastqdir}/SRR2084596,${fastqdir}/SRR2084597,${fastqdir}/SRR2084598,${fastqdir}/SRR2084599 \
---readFilesCommand zcat \
---outFileNamePrefix ${basedir}/RNAseq/Aligned/ \
---outSAMtype BAM SortedByCoordinate \
---quantMode TranscriptomeSAM GeneCounts\
---outWigType bedGraph \
+for fn in SRR208459{6..9}
+do
 
-    
+    STAR \
+        --runMode alignReads \
+        --runThreadN 4 \
+        --genomeDir ${basedir}/bank/star_index \
+        --readFilesIn ${fastqdir}/${fn}_chr1920.fq.gz\
+        --readFilesCommand zcat \
+        --outFileNamePrefix ${basedir}/RNAseq/Aligned/${fn}_chr1920_ \
+        --outSAMtype BAM SortedByCoordinate \
+        --quantMode TranscriptomeSAM GeneCounts \
+        --outWigType bedGraph \
+
+done
 
 ```
 The option `--quantmode TranscriptomeSAM` produces the alignments in the coordinates of the transcriptome.  
@@ -281,38 +285,205 @@ The option `--outWigType bedGraph` produces bedgraph files that can be used to v
 
 ### Counting and differential expression analysis
 
+In addition to STAR (see above), there are several other options to count reads (including splice reads) on genomic features such as genes. An early and still popular solution with python is [HTseq](https://github.com/simon-anders/htseq). Another efficient tool is [featureCounts](http://subread.sourceforge.net/) that is also accessible in R via the [Rsubread](http://bioconductor.org/packages/release/bioc/html/Rsubread.html) package.  
+
+Although less memory efficient, it is also possible to use the `summarizeOverlaps` function of the [GenomicAlignments](http://bioconductor.org/packages/release/bioc/html/GenomicAlignments.html) package from Bioconductor:
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#module load system/R-3.4.3 #on genologin cluster (choose the right version for you)
+library(GenomicAlignments)
+#Prepare the annotations:
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+txdb <- GenomeInfoDb::keepSeqlevels(TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                    c("chr19", "chr20"),
+                                    pruning.mode = "coarse")
+hg38exBygn <- exonsBy(txdb, by="gene")
+
+# Bam files:
+bampath <- "/work/pmartin/PROJECTS/RNAseqChIPseq/RNAseq/Aligned"
+bamfn <- BamFileList(dir(bampath, pattern="*.sortedByCoord.out.bam$", full=TRUE))
+
+ct <- summarizeOverlaps(hg38exBygn,
+                        bamfn,
+                        mode = "Union",
+                        singleEnd=TRUE,
+                        ignore.strand = TRUE)
+colnames(ct) <- paste0("SRR208459",6:9)
+```
+
+```{r, eval=FALSE, include=FALSE}
+saveRDS(head(assays(ct)$counts), "data/headct.rds")
+```
+
+The counts are obtained using:
+```{r, eval=FALSE}
+head(assays(ct)$counts)
+```
+
+```{r, echo=FALSE}
+headct <- readRDS("../data/headct.rds")
+headct %>%
+    kable() %>%
+    kable_styling(font_size = 13,
+                  bootstrap_options = c("striped", "condensed"),
+                  full_width = FALSE)
+```
+
+The percentage of reads from the BAM files that were assigned to a gene model can be obtained with:
+```{r, eval=FALSE}
+100 * colSums(assays(ct)$counts) / countBam(bamfn)$records
+# ~76-80%
+```
+
+Using these counts, we can perform a differential expression analysis using e.g. [DESeq2](http://bioconductor.org/packages/release/bioc/html/DESeq2.html).  
+For this, we first prepare the data:
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+library(DESeq2)
+colData <- DataFrame(SampleName = colnames(ct),
+                     condition = factor(rep(c("shPAF1","Ctrol"), each=2)),
+                     row.names = colnames(ct))
+
+dds <- DESeqDataSetFromMatrix(countData = assays(ct)$counts,
+                              colData = colData,
+                              design = ~ condition)
+```
+
+Then, we remove the genes that have 0 counts for all samples. We can add other filters here, such as keeping only protein-coding genes or removing genes overlapping with a _blacklist_.
+```{r, eval=FALSE}
+dds <- dds[rowSums(assay(dds))!=0,]
+```
+
+And we perform the analysis:
+```{r, eval=FALSE, message=FALSE}
+dds <- DESeq(dds)
+```
+```{r, eval=FALSE, include=FALSE}
+saveRDS(results(dds), "data/ddsres.rds")
+```
+
+
+We get the number of DE genes (at FDR=5%) using:
+```{r, eval=FALSE}
+sum(results(dds)$padj<0.05, na.rm = TRUE)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ddsres <- readRDS("../data/ddsres.rds")
+sum(ddsres$padj<0.05, na.rm=TRUE)
+```
+
+
+The results table can be vizualized using:
+```{r, eval=FALSE}
+head(results(dds))
+```
+
+```{r, echo=FALSE}
+head(ddsres) %>%
+    kable(digits=c(2,2,3,3,6,6)) %>%
+    kable_styling(font_size = 13,
+                  bootstrap_options = c("striped", "condensed"),
+                  full_width = FALSE)
+```
+
+The DE genes can now be further studied (e.g. enrichment of GO annotations or specific pathwyas?) and integrated with other measurements (e.g. ChIP-seq)
+
+```{r, eval=FALSE, include=FALSE}
+## Compare summarizeOverlaps with STAR counting:
+gnct <- lapply(dir(pattern="_ReadsPerGene.out.tab"), read.table, sep="\t")
+ctstar <- do.call("cbind", lapply(gnct, `[`, -(1:4), 2))
+  rownames(ctstar) <- gsub("\\..+", "", gnct[[1]][-(1:4),1])
+  colnames(ctstar) <- paste0("SRR208459",6:9)
+
+  #Problem, the names don't match
+library(org.Hs.eg.db)
+eg2ens <- select(org.Hs.eg.db, keytype="ENTREZID", column="ENSEMBL", key=rownames(ct))
+#There are 40 Entrez gene that match with 2 ensembl genes (also because Ensembl database version is different between star counting and org package)
+#let's keep only the single match (also for Ensembl):
+egdup <- eg2ens[duplicated(eg2ens[,"ENTREZID"]),"ENTREZID"]
+eg2ens <- eg2ens[!(eg2ens[,"ENTREZID"] %in% egdup),]
+ensdup <- eg2ens[duplicated(eg2ens[,"ENSEMBL"]),"ENSEMBL"]
+eg2ens <- eg2ens[!(eg2ens[,"ENSEMBL"] %in% ensdup), ]
+eg2ens <- eg2ens[eg2ens[,"ENSEMBL"] %in% rownames(ctstar), ]
+
+#get non ambiguous count tables
+ctstarOK <- ctstar[eg2ens[,"ENSEMBL"],]
+ctOK <- ct[eg2ens[,"ENTREZID"],]
+
+par(mfrow=c(2,2))
+for (i in 1:4) { plot(log2(ctstarOK[,i]+1), log2(assays(ctOK)$count[,i]+1)) }
+#OK counts are really close. I should use the exact same annotation to do this comparison
+```
+
+
 ### Obtaining expression levels
 
-Strongly relies on the estimation of transcript sizes.
-RPKM in R
-TPM from RSEM
-quantif using Salmon (or kallisto)
+While **counts** are the preferred measure to perform differential expression analysis, they also depend on transcript size. For 2 equally abundant transcripts, if one is twice the length of the other, then reads from the longer transcript are twice more likely to be sequenced.  
+So in order to compare the expression of different genes, we need to normalize by gene/transcript size. This raises questions such as:  
+
+- If a gene produces different transcripts that share exons, and the counts are at the gene level, which size should we use?  
+- If a gene produces different transcripts in different samples (because e.g. splicing or initiation/termination of transcription have been affected by an experimental condition), then we can't use the same size to normalize the data.  
+
+Because of such issues (and because of the stochasticity in the data), we can only estimate the actual gene expression levels and can't reliably tell if 2 genes with very close expression measures are actually expressed at different levels. We can nevertheless form groups of genes that faithfully represent e.g. low, moderate or high expression levels.  
+  
+The first, very intuitive measure that was proposed is the **RPKM** (or **FPKM** if applied at the level of fragments from paired-end sequencing) in which the number of reads is normalized by gene length (_reads per kilobase_) and then by the library size (_reads per million_).
+
+Later it was shown that one limitation of RPKM/FPKM was that their sum was different between samples and experiment (**REF**) and the **TPM** (Transcript per million) was introduced. The principle of the normalization is globally the same but the order in which the normalization are performed differs.
+
+
+More recently, it was realized that classical spliced-read alignment on the genome was not a necessity to evaluate where the reads were coming from. => Salmon/Kallisto approach using pseudo-alignment / kmers to assess abundances at the isoform level
+
+TODO: *Add the math*
+TODO: *examples of RPKM and TPM in R*
+TODO: *example of TPM with RSEM*
+TODO: *example with Salmon*
+TODO: *Provide some refs of discussions on this topic*
 
 
 ### Signal files for genome browser
-bedgraph, bigwig format
-coverages and rtracklayer
-use star to generate the bedgraph files
+_"Signal files"_ contain some kind of counting (possibly normalized by library size) of the number of reads that are aligned at each position of the genome. They are generally in [wig](https://genome.ucsc.edu/goldenpath/help/wiggle.html) / [bigwig](https://genome.ucsc.edu/goldenpath/help/bigWig.html) format or in [bedgraph](https://genome.ucsc.edu/goldenpath/help/bedgraph.html) format.  
+We have already obtained these files above via the STAR command (see [Alignment]). We can also obtain such files using the `coverage` function in R:
 
+```{r, eval=FALSE}
+mybam <- readGAlignments(file.path(bampath, 
+                                   "SRR2084596_chr1920_Aligned.sortedByCoord.out.bam"))
+# !! for RNA-seq do not convert the reads to granges because spliced reads would results in coverage on the introns
+covbam <- coverage(grglist(mybam))
+#At this step it is generally necessary to normalize
+rtracklayer(export(covbam), "myProfile.bigwig")
+```
+
+The [rtracklayer](http://bioconductor.org/packages/release/bioc/html/rtracklayer.html) package is also very useful to import different profiles and perform operations on them (e.g. calculate averages, differences or ratios of profiles). 
+All these signal files can then be vizualized on a genome browser.
 
   
 ## ChIP-seq
 
 ### Raw reads - QC - Trimming
 
+[fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+distribution of fragment length (paired end)
+
 ### Alignment and profiles
+
+bwa or bowtie2
 
 ### Peak calling
 
+MACS, SICER, etc.
+
 ### Peak annotation
+
+ChIPpeakanno
 
 ### Extracting profiles around genomic features
 
 Average profiles and heatmaps
+genomation
+EnrichedHeatmap
 
 ### Extracting sequences for motif search
 
-biostring
+Biostrings
+=> RSAT, MEME, etc.
 
 
 
