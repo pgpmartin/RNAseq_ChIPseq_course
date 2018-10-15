@@ -1,12 +1,18 @@
 ---
-title: "RNA-seq and ChIP-seq"
+title: "RNA-seq and ChIP-seq data analysis"
 author: "Pascal"
 date: "15 octobre 2018"
-output: html_document
+output: 
+  html_document:
+      toc: true
+      toc_depth: 3
+      toc_float: true
 bibliography: RNAseqChIPseq.bibtex
 csl: cell.csl
 highlight: github
 ---
+
+<a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -16,8 +22,9 @@ library(kableExtra)
 ## Data and session setup  
 
 _In this document, the commands corresponding to module loading are intended to be run on the genologin cluster (see [bioinformatic platform](http://bioinfo.genotoul.fr/))_  
-_Alternatively, install individual tools (links provided in this document) or use [bioconda](https://bioconda.github.io/)_
+_Alternatively, install individual tools on your system (links provided in this document) or use [bioconda](https://bioconda.github.io/)_
 
+</br>
 
 ### Data presentation 
 
@@ -37,6 +44,7 @@ The article describes the role of the __transcription elongation factor PAF1__ o
 
 Here, we focus on the RNA-seq data and some of the ChIP-seq data produced in the article. In order to keep computations at an acceptable level, we will only keep chromosomes 19 and 20 which cover ~120Mb (comparable to the size of  Drosophila melanogaster or Arabidopsis thaliana whole genome).  
   
+</br>
 
 ### Session setup  
 
@@ -53,11 +61,12 @@ mkdir -p ${basedir}/log
 selectedChromosomes="chr19 chr20"
 ```
   
-  
+</br>
 
 ### Sequences, annotations and indexes  
 
 The genome sequences and annotations are downloaded from [Gencode](https://www.gencodegenes.org/).  
+
 
 #### Genome sequence (fasta)  
 
@@ -82,7 +91,7 @@ samtools index GRCh38.primary_assembly.chr1920.fa
 rm GRCh38.primary_assembly.genome.fa
 ```
   
-  
+
 
 #### Annotations (GTF file):  
 
@@ -105,7 +114,8 @@ gencode.v28.annotation_chr1920.gtf
 rm gencode.v28.annotation.gtf
 ```
   
-  
+
+
 #### STAR index:  
 
 [STAR](https://github.com/alexdobin/STAR) is a powerful short read aligner dedicated to RNA-seq [@pmid23104886].
@@ -126,6 +136,9 @@ STAR \
 
 ```
 
+  
+
+
 #### Bowtie2 index:  
 
 Popular short read aligners include [Bowtie2](http://bowtie-bio.sourceforge.net/bowtie2) [@pmid22388286] and [bwa](http://bio-bwa.sourceforge.net/) [@pmid19451168; @pmid20080505].  
@@ -145,6 +158,7 @@ ${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920 \
 
   
 
+
 #### Transcripts sequences:  
 
 Some recent so-called "alignment-free" methods such as [kallisto](https://pachterlab.github.io/kallisto/) [@pmid27043002] and [Salmon](https://combine-lab.github.io/salmon/) [@pmid28263959] do not perform a classical alignment of reads on the genome prior to assigning reads to genomic features (genes/transcripts). Rather, they rely on matching catalogs of k-mers obtained from the transcriptome on one hand and the reads on the other hands.  
@@ -155,7 +169,9 @@ cd ${basedir}/bank
 wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.transcripts.fa.gz
 ```
   
-  
+
+</br>
+
 ### Raw data (reads)  
 
 The [EBI European Nucleotide Archive](https://www.ebi.ac.uk/ena) is a convenient way to access NGS data. In particular, it includes a copy of the [NCBI Short Read archive](https://www.ncbi.nlm.nih.gov/sra).  
@@ -214,8 +230,9 @@ cat downloadSelectedGSE70408.txt | while read LIST
   done
 ```
 
-I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus a few % of unmapped reads to make it more realistic `r emo::ji("wink")`). The filtered reads are in the data folder.
+I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus a few % of unmapped reads to make it more realistic `r emo::ji("wink")`). The filtered reads are in the data folder.  
 
+</br>
 
 ## RNA-seq
 
@@ -249,7 +266,8 @@ In many cases RNA-seq reads do not require trimming. If you notice a lot of adap
   
 Note that [fastp](https://github.com/OpenGene/fastp), a recently developed tool integrates automatic trimming (and adapter detection) with pre- and post-filtering QC [@doi:10.1093/bioinformatics/bty560].  
   
-  
+
+</br>
 
 ### Alignment
 
@@ -281,7 +299,7 @@ The option `--quantmode TranscriptomeSAM` produces the alignments in the coordin
 The option `--quantmode GeneCounts` produces a table with counts of reads per gene.  
 The option `--outWigType bedGraph` produces bedgraph files that can be used to vizualize the data in a genome browser.  
 
-
+</br>
 
 ### Counting and differential expression analysis
 
@@ -418,8 +436,9 @@ basedir="/work/pmartin/PROJECTS/RNAseqChIPseq"
 txdb <- makeTxDbFromGFF(file.path(basedir, "bank", "gencode.v28.annotation_chr1920.gtf"))
 ```
 
+</br>
 
-### Obtaining expression levels
+### Estimates of expression levels
 
 While **counts** are the preferred measure to perform differential expression analysis, they depend on both sequencing depth and transcript size. Thus, they are not adapted to estimate the "absolute" expression of a gene and compare it to th eexpression of other genes. Count data must thus be corrected for:  
 
@@ -518,6 +537,7 @@ More recently, it was realized that classical spliced-read alignment on the geno
 
 <!-- TODO: add example with Salmon -->
 
+</br>
 
 ### Signal files for genome browser
 _"Signal files"_ contain some kind of counting (possibly normalized by library size) of the number of reads that are aligned at each position of the genome. They are generally in [wig](https://genome.ucsc.edu/goldenpath/help/wiggle.html) / [bigwig](https://genome.ucsc.edu/goldenpath/help/bigWig.html) format or in [bedgraph](https://genome.ucsc.edu/goldenpath/help/bedgraph.html) format.  
@@ -538,11 +558,15 @@ rtracklayer::export(covbam, "myProfile.bigwig")
 
 The signal files can then be vizualized on a genome browser such as [IGV](http://software.broadinstitute.org/software/igv/), [jbrowse](https://jbrowse.org/) or [gbrowse](https://www.gbrowse.org/).
 
-  
+
+</br>
+
 ## ChIP-seq
 
 Useful resources to start with ChIP-seq include the guidelines published by the [ENCODE](https://www.encodeproject.org/) and [modENCODE](http://www.modencode.org/) consortia [@pmid22955991], reviews on ChIP-seq data analysis [e.g. @pmid24244136] and online courses (e.g. [using Bioconductor](https://www.bioconductor.org/help/course-materials/2016/CSAMA/lab-5-chipseq/Epigenetics.html)).  
   
+</br>
+</br>
 
 ### Raw reads - QC - Trimming
 PAF1 ChIP-seq sample has been sequenced over 3 runs (single-end). The raw sequences were merged:
@@ -564,6 +588,7 @@ module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 ```
 Based on this, we decide to not trim the reads and proceed with alignment.  
   
+</br>
 
 ### Alignment
 
@@ -637,10 +662,11 @@ ${AlignedReads%%.bam}.bamstats
 #Plots  from these statistics can be generated using the plot-bamstats function present in the misc subfolder of samtools
 ```
 
+</br>
 
-### Signal profiles
+### Signal files
 
-Signal profiles for downstream analysis and visualization in a genome browser can be obtained using different tools such as: [bedtools coverage/coverageBed](https://bedtools.readthedocs.io/en/latest/content/tools/coverage.html) or [deeptools bamCoverage](https://deeptools.readthedocs.io/en/develop/content/tools/bamCoverage.html).  
+Signal files for downstream analysis and visualization in a genome browser can be obtained using different tools such as: [bedtools coverage/coverageBed](https://bedtools.readthedocs.io/en/latest/content/tools/coverage.html) or [deeptools bamCoverage](https://deeptools.readthedocs.io/en/develop/content/tools/bamCoverage.html).  
 As illustrated below, they can also be obtained with the peak caller [MACS2](https://github.com/taoliu/MACS).   
 
   In single-end sequencing, the 5'-> 3' orientation of sequencing and the short read length creates a bias in read distribution between the +/- strands [@pmid20628599]:
@@ -649,7 +675,7 @@ As illustrated below, they can also be obtained with the peak caller [MACS2](htt
   B. Broad mark (e.g. RNAPII)**](figs/ChIPseq_reads_pmid20628599.png)  
   
   Because we want the signal file to represent the location of the protein that was IPed, we need to either extend the reads to the fragment size d, or to shift them by d/2.  
-  There are different methods to estimate the fragment size from a single-end ChIP-seq library, for example the [SPP](http://compbio.med.harvard.edu/Supplements/ChIP-seq/) peak caller widely used by ENCODE does that.  
+  There are different methods to estimate the fragment size from a single-end ChIP-seq library (e.g. [SPP](http://compbio.med.harvard.edu/Supplements/ChIP-seq/) peak caller widely used by ENCODE).  
 
 In R, we can use:
 ```{r ChIPseq coverage in R, eval=FALSE, message=FALSE, warning=FALSE}
@@ -676,13 +702,17 @@ saveRDS(paf1cov, "../RData/paf1cov.rds")
 ```
 
   
-**A comment about fragment length:**  
+**About fragment length:**  
 Here, we have single-end reads but when paired-end reads are available, it is a good idea to look at the distribution of fragment lengths. In ChIP-seq and depending on the fragmentation and library preparation steps, fragment sizes carries biologically meaningfull information. For example, highly accessible regions such as enhancers or active promoters are more likely to yield small ChIP-seq fragments. Nucleosomes-derived fragments are typically in the ~150bp range. Longer fragments may be enriched for compact heterochromatin.  
+<!-- TODO: cite REFS, Henikoff, Sono-seq & co -->
   
-  
+</br>
+
 ### Peak calling
 
-There are several tools to perform peak calling. [MACS2](https://github.com/taoliu/MACS) and [SPP](https://www.encodeproject.org/software/spp/) are heavily used by the [ENCODE](https://www.encodeproject.org/) project. We can also mention [SICER](https://home.gwu.edu/~wpeng/Software.htm) for braod regions or [GEM/GPS](http://groups.csail.mit.edu/cgs/gem/) for punctuate regions.
+There are several tools to perform peak calling.  
+[MACS2](https://github.com/taoliu/MACS) and [SPP](https://www.encodeproject.org/software/spp/) are heavily used by the [ENCODE](https://www.encodeproject.org/) project.  
+We can also mention [SICER](https://home.gwu.edu/~wpeng/Software.htm) for braod regions or [GEM/GPS](http://groups.csail.mit.edu/cgs/gem/) for punctuate regions.
 
 Here we illustrate the use of MACS2:
 ```{bash, ChIPseq MACS2, eval=FALSE}
@@ -702,12 +732,13 @@ macs2 callpeak \
 
   - We use the `-g dm` argument here because chr19+chr20 are ~ the size of the Drosophila genome  
   - We use the options: `--nomodel --extsize 200` because we have already estimated fragment length (and MACS2 model has too few peaks here to reliably estimate the fragment size)
-  - With the `-B` argument, MACS2 also produces bedgraph files for fragments pilup, -log10(pvalue) and -log10(qalue). 
-  - The `p 0.001` argument relaxes a bit the default threshold of MACS2 (q-value<0.05) in order to detect more peaks  
+  - With the `-B` argument, MACS2 also produces bedgraph files for fragments pileup, -log10(pvalue) and -log10(qalue). 
+  - The `-p 0.01` argument relaxes a bit the default threshold of MACS2 (q-value<0.05) in order to detect more peaks  
+  
+**IDR pipeline:**  
+The [ENCODE](https://www.encodeproject.org/) consortium has developed a pipeline to call peaks that are reproducible between replicates and pseudo-replicates (obtained by random sampling) called the [IDR pipeline](https://www.encodeproject.org/software/idr/).  
 
-
-[IDR pipeline](https://www.encodeproject.org/software/idr/)
-
+</br>
 
 ### Peak annotation
 
@@ -740,24 +771,30 @@ Note that there is a default priority in genomic annotations (i.e., by default, 
 saveRDS(paf1peakanno, "../RData/paf1peakanno.rds")
 ```
 
-```{r readRDS paf1peakanno, eval=TRUE, include=FALSE}
+```{r readRDS paf1peakanno, eval=FALSE, include=FALSE}
 paf1peakanno <- readRDS("../RData/paf1peakanno.rds")
 ```
 
 The results of the enrichment can be visualized using a barplot:
-```{r ChIPseq plotAnnoBar, fig.height=3, fig.align = "center", message=FALSE}
+```{r ChIPseq plotAnnoBar, fig.height=3, fig.align = "center", message=FALSE, eval=FALSE}
+#png("course/figs/plotAnnoBar_paf1peakanno.png", width=750, height=450, res=150)
 ChIPseeker::plotAnnoBar(paf1peakanno)
+#dev.off()
 ```
+<center>![](figs/plotAnnoBar_paf1peakanno.png)</center>
 
 But the overlaps in peak annotations are best illustrated with an [Upset plot](https://github.com/hms-dbmi/UpSetR) [@pmid26356912; @pmid28645171]:
-```{r ChIPseq upsetplot, fig.height=5, fig.width=9, fig.align = "center"}
+```{r ChIPseq upsetplot, fig.height=5, fig.width=10, fig.align = "center", eval=FALSE}
+#png("course/figs/upset_paf1peakanno.png", width=1500, height=750, res=150)
 ChIPseeker::upsetplot(paf1peakanno, vennpie=TRUE)
+#dev.off()
 ```
+<center>![](figs/upset_paf1peakanno.png)</center>
+</br>
 
+### Heatmaps and average profiles
 
-### Extracting profiles around genomic features
-
-Another way to look at the data is to extract profiles around specific genomic features. The [genomation](http://bioconductor.org/packages/release/bioc/html/genomation.html) and [EnrichedHeatmap](https://bioconductor.org/packages/release/bioc/html/EnrichedHeatmap.html) packages provides interesting functions for this task. For illustrative purpose we do it more "manually" here:  
+Another way to look at the data is to extract profiles around specific genomic features and to represent them as heatmaps an average profiles. The [genomation](http://bioconductor.org/packages/release/bioc/html/genomation.html) and [EnrichedHeatmap](https://bioconductor.org/packages/release/bioc/html/EnrichedHeatmap.html) packages provides interesting functions for this task. For illustrative purpose we do it more "manually" here:  
 
 We use the `paf1cov` object created earlier.  
 ```{r readRDS paf1cov, eval=FALSE, include=FALSE}
@@ -827,21 +864,23 @@ class(paf1TSSmat) = c("normalizedMatrix", "matrix")
 saveRDS(paf1TSSmat, "../RData/paf1TSSmat.rds")
 ```
 
-```{r ChIPseq readRDS paf1TSSmat, eval=TRUE}
+```{r ChIPseq readRDS paf1TSSmat, eval=FALSE, include=FALSE}
 paf1TSSmat <- readRDS("../RData/paf1TSSmat.rds")
 ```
 
 Then we plot them:
-```{r ChIPseq heatmap, message=FALSE, warning=FALSE, fig.width = 3, fig.align = "center"}
+```{r ChIPseq heatmap, message=FALSE, warning=FALSE, fig.width = 3, fig.align = "center", eval=FALSE}
 library(EnrichedHeatmap)
 col_fun = circlize::colorRamp2(c(0, 30), c("white", "red"))
-EnrichedHeatmap(paf1TSSmat,
+#png("course/figs/hmap_paf1TSSmat.png", width=450, height=750, res=150)
+    EnrichedHeatmap(paf1TSSmat,
                 row_order=1:nrow(paf1TSSmat),
                 col=col_fun,
                 name="PAF1",
                 axis_name=c('-1Kb','TSS','+1Kb'))
-
+#dev.off()
 ```
+<center>![](figs/hmap_paf1TSSmat.png)</center>  
 
 The `EnrichedHeatmap` already provides an average profile over the region. But we can easily obtain it as follow:  
 
@@ -863,7 +902,7 @@ And plot the average profile:
 plot(-1000:1000,
      avgprof, 
      type="l",
-     lwd=2,
+     lwd=3,
      axes=FALSE,
      xlab="Position relative to TSS",
      ylab="Average coverage (reads)")
@@ -871,19 +910,42 @@ axis(side=1,
      at=c(-1000, 0, 1000),
      labels = c("-1Kb", "TSS", "+1Kb"))
 axis(side = 2)
+abline(v=0, lty=2, lwd=1.5, col="darkgrey")
 ```
 
+</br>
 
-### Extracting sequences for motif search
+### Sequences for motif search
 
 Using the Biostrings package, we can easily extract sequences to be analyzed for motif enrichment.  
-Here we extract the core promoter sequences of genes with a PAF1 peak at less than 1Kb from their TSS:  
+Here we extract the core promoter sequences (TSS-500bp to TSS) of genes with a PAF1 peak at less than 1Kb from their TSS:  
 
+Select the TSS with a PAF1 peak at less than 1Kb:
+```{r CHIPseq select tssWithPAF1, eval=FALSE}
+tssWithPAF1 <- tss[overlapsAny(tss+1000, paf1Peaks)]
+```
 
-Biostrings
-=> RSAT, MEME, etc.
+Load the genome sequence
+```{r, load BSgenome.Hsapiens.UCSC.hg38, eval=FALSE}
+library(BSgenome.Hsapiens.UCSC.hg38)
+```
 
+Extract the core promoters of these TSS:
+```{r ChIPseq get core promoters of tssWithPAF1, eval=FALSE}
+selseq <- BSgenome::getSeq(Hsapiens, 
+                           promoters(tssWithPAF1,
+                                     upstream=500,
+                                     downstream=1))
+```
 
+And export the sequences as a fasta file:
+```{r ChIPseq export tssWithPAF1 promoters to fasta, eval=FALSE}
+writeXStringSet(selSeq, "../data/Prom_tssWithPAF1.fa")
+```
 
-### References:  
+These sequences can then be used to search for motifs using e.g. [RSAT](http://pedagogix-tagc.univ-mrs.fr/rsat/RSAT_portal.html) or [MEME](http://meme-suite.org/)  
+
+</br>
+
+## References  
 
