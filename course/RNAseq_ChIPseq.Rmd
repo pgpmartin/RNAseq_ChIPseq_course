@@ -1,7 +1,7 @@
 ---
 title: "RNA-seq and ChIP-seq"
 author: "Pascal"
-date: "14 octobre 2018"
+date: "15 octobre 2018"
 output: html_document
 bibliography: RNAseqChIPseq.bibtex
 csl: cell.csl
@@ -45,10 +45,10 @@ Prepare the folders in which the analysis will be performed:
 basedir="/work/pmartin/PROJECTS/RNAseqChIPseq"
 # replace pmartin by your username if you work on GenoToul cluster
 
-mkdir ${basedir}/RNAseq
-mkdir ${basedir}/ChIPseq
-mkdir ${basedir}/bank
-mkdir ${basedir}/log
+mkdir -p ${basedir}/RNAseq
+mkdir -p ${basedir}/ChIPseq
+mkdir -p ${basedir}/bank
+mkdir -p ${basedir}/log
 
 selectedChromosomes="chr19 chr20"
 ```
@@ -114,7 +114,7 @@ While a very fast aligner, it requires relatively large amounts of RAM.
 
 Before running alignments with STAR, we need to generate genome indexes:
 ```{bash eval=FALSE}
-mkdir ${basedir}/bank/star_index
+mkdir -p ${basedir}/bank/star_index
 module load bioinfo/STAR-2.6.0c #on genologin cluster
 
 STAR \
@@ -132,7 +132,7 @@ Popular short read aligners include [Bowtie2](http://bowtie-bio.sourceforge.net/
 
 We use bowtie2 here and build the genome index using:  
 ```{bash eval=FALSE}
-mkdir ${basedir}/bank/bowtie2_index
+mkdir -p ${basedir}/bank/bowtie2_index
 module load bioinfo/bowtie2-2.3.4.1 #on genologin cluster
 
 bowtie2-build \
@@ -214,7 +214,7 @@ cat downloadSelectedGSE70408.txt | while read LIST
   done
 ```
 
-I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus ~5% of unmapped reads to make it more realistic `r emo::ji("wink")`). The filtered reads are in the data folder.
+I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus a few % of unmapped reads to make it more realistic `r emo::ji("wink")`). The filtered reads are in the data folder.
 
 
 ## RNA-seq
@@ -228,7 +228,7 @@ More advanced QC can also be performed using e.g. [RSeQC](http://rseqc.sourcefor
 Note that in RNA-seq (and other applications as well) it is often desirable to compare the QC obtained from different samples. [MultiQC](https://multiqc.info/) is an excellent tool to facilite this task.
 
 ```{bash, eval=FALSE}
-mkdir ${basedir}/RNAseq/rawQC
+mkdir -p ${basedir}/RNAseq/rawQC
 module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 
 for fn in SRR20845{96..99}
@@ -255,7 +255,7 @@ Note that [fastp](https://github.com/OpenGene/fastp), a recently developed tool 
 
 Align the reads to the "genome" (here only chr19 and chr20) using STAR:
 ```{bash eval=FALSE}
-mkdir ${basedir}/RNAseq/Aligned
+mkdir -p ${basedir}/RNAseq/Aligned
 module load bioinfo/STAR-2.6.0c #on genologin cluster
 
 fastqdir=${basedir}/data/filteredFastq
@@ -311,7 +311,8 @@ colnames(ct) <- paste0("SRR208459",6:9)
 ```
 
 ```{r, eval=FALSE, include=FALSE}
-saveRDS(head(assays(ct)$counts), "data/headct.rds")
+saveRDS(head(assays(ct)$counts), "../RData/headct.rds")
+saveRDS(ct, "../RData/ct.rds")
 ```
 
 The counts are obtained using:
@@ -320,7 +321,7 @@ head(assays(ct)$counts)
 ```
 
 ```{r, echo=FALSE}
-headct <- readRDS("../data/headct.rds")
+headct <- readRDS("../RData/headct.rds")
 headct %>%
     kable() %>%
     kable_styling(font_size = 13,
@@ -357,7 +358,7 @@ And we perform the analysis:
 dds <- DESeq(dds)
 ```
 ```{r, eval=FALSE, include=FALSE}
-saveRDS(results(dds), "data/ddsres.rds")
+saveRDS(results(dds), "../RData/ddsres.rds")
 ```
 
 
@@ -366,7 +367,7 @@ We get the number of DE genes (at FDR=5%) using:
 sum(results(dds)$padj<0.05, na.rm = TRUE)
 ```
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-ddsres <- readRDS("../data/ddsres.rds")
+ddsres <- readRDS("../RData/ddsres.rds")
 sum(ddsres$padj<0.05, na.rm=TRUE)
 ```
 
@@ -411,31 +412,111 @@ ctOK <- ct[eg2ens[,"ENTREZID"],]
 par(mfrow=c(2,2))
 for (i in 1:4) { plot(log2(ctstarOK[,i]+1), log2(assays(ctOK)$count[,i]+1)) }
 #OK counts are really close. I should use the exact same annotation to do this comparison
+
+##We should use these annotations:
+basedir="/work/pmartin/PROJECTS/RNAseqChIPseq"
+txdb <- makeTxDbFromGFF(file.path(basedir, "bank", "gencode.v28.annotation_chr1920.gtf"))
 ```
 
 
 ### Obtaining expression levels
 
-While **counts** are the preferred measure to perform differential expression analysis, they also depend on transcript size. For 2 equally abundant transcripts, if one is twice the length of the other, then reads from the longer transcript are twice more likely to be sequenced.  
-So in order to compare the expression of different genes, we need to normalize by gene/transcript size. This raises questions such as:  
+While **counts** are the preferred measure to perform differential expression analysis, they depend on both sequencing depth and transcript size. Thus, they are not adapted to estimate the "absolute" expression of a gene and compare it to th eexpression of other genes. Count data must thus be corrected for:  
+
+- __Sequencing depth__: A sample sequenced more deeply will have more reads mapping to all genes  
+- __Gene (or transcript) length__: Longer genes will have more reads mapping to them than shorter genes  
+
+**Sequencing Depth:**  
+Methods to analyze differential gene expression (e.g. [DESeq2](http://bioconductor.org/packages/release/bioc/html/DESeq2.html), [edgeR](http://bioconductor.org/packages/release/bioc/html/edgeR.html) or [limma](http://bioconductor.org/packages/release/bioc/html/limma.html) with appropriate normalization for count-based data) all take into account sequencing depth, also refered to as _"library size"_. While `colSums` on the count matrix is an intuitive solution, more elaborate methods such as TMM (Trimmed mean of M-values, [@pmid20196867]) should be considered, especially in te presence of heterogeneity between samples.  
+
+**Gene/Transcript(s) length:**  
+The necessity to scale the data by gene/transcript size raises questions such as:  
 
 - If a gene produces different transcripts that share exons, and the counts are at the gene level, which size should we use?  
-- If a gene produces different transcripts in different samples (because e.g. splicing or initiation/termination of transcription have been affected by an experimental condition), then we can't use the same size to normalize the data.  
+- If a gene produces different transcripts in different samples (because e.g. splicing or initiation/termination of transcription have been affected by an experimental condition), should we scale by different gene sizes between samples?  
 
-Because of such issues (and because of the stochasticity in the data), we can only estimate the actual gene expression levels and can't reliably tell if 2 genes with very close expression measures are actually expressed at different levels. We can nevertheless form groups of genes that faithfully represent e.g. low, moderate or high expression levels.  
+Because of such issues (and because of the stochasticity in the data), the actual gene expression levels can only be estimated from the count data. We can't reliably tell if 2 genes with very close expression measures are actually expressed at different levels, but we can form groups of genes that faithfully represent e.g. low, moderate or high expression levels.  
   
-The first, very intuitive measure that was proposed is the **RPKM** (or **FPKM** if applied at the level of fragments from paired-end sequencing) in which the number of reads is normalized by gene length (_reads per kilobase_) and then by the library size (_reads per million_).
+Here, we use a simple way to estimate gene size. We take the median length of all transcripts annotated from that gene:
+```{r Estimate gene length, eval=FALSE}
+txsByGene <- transcriptsBy(txdb, "gene")
+GeneLength <- median(width(txsByGene))
+GeneLengthInKb <- GeneLength / 1e3
+```
 
-Later it was shown that one limitation of RPKM/FPKM was that their sum was different between samples and experiment (**REF**) and the **TPM** (Transcript per million) was introduced. The principle of the normalization is globally the same but the order in which the normalization are performed differs.
 
+The first, very intuitive, measure that was proposed is the **RPKM** (*R*eads *p*er *k*ilobase per *m*illion mapped reads)  in which the number of reads is first normalized by the library size (the _reads per million_ part) and then by gene length (the _reads per kilobase_ part) and then by  [@pmid18516045]. When applied at the level of fragments sequenced from both ends using paired-end sequencing we use **FPKM** for fragment per kilobase per million mapped reads. 
 
-More recently, it was realized that classical spliced-read alignment on the genome was not a necessity to evaluate where the reads were coming from. => Salmon/Kallisto approach using pseudo-alignment / kmers to assess abundances at the isoform level
+We can calculate RPKM using:
+```{r RNAseq RPKM values, eval=FALSE}
+#geneLengths is in Kb
+rpkm_fun <- function(countMatrix, geneLengths) {
+    x <- t( t(countMatrix) * 1e6 / colSums(countMatrix) ) # get RPM
+    rpkm.mat <- x / geneLengths # scale for gene length
+    return(rpkm.mat)
+}
 
-TODO: *Add the math*
-TODO: *examples of RPKM and TPM in R*
-TODO: *example of TPM with RSEM*
-TODO: *example with Salmon*
-TODO: *Provide some refs of discussions on this topic*
+RPKM <- rpkm_fun(assays(ct)$counts,
+                 GeneLengthInKb)
+```
+
+```{r RNAseq RPKM Ryan Devon function, eval=FALSE, include=FALSE}
+#The function above is strictly identical to this function proposed by Ryan Devon (https://www.biostars.org/p/96084/):
+rpkm_fun <- function(countMatrix, geneLengths) {
+    (10^6)*t(t(countMatrix/geneLengths)/colSums(countMatrix))
+}
+#But better illustrates the 2 steps that are inversed in TPM
+```
+
+```{r saveRPKM, eval=FALSE, include=FALSE}
+saveRDS(RPKM, "../RData/RPKM.rds")
+```
+
+We can obtain the same results using [edgeR](http://bioconductor.org/packages/release/bioc/html/edgeR.html) functions:
+```{r edgeR RPKM, eval=FALSE}
+edg <- DGEList(assays(ct)$counts,
+               group = factor(rep(c("shPAF1","Ctrol"), each=2)))
+edg <- edgeR::calcNormFactors(edg)
+
+edgRPKM <- rpkm(edg,
+                gene.length = GeneLength,
+                normalized.lib.sizes = FALSE,
+                log = FALSE, 
+                prior.count = 0)
+
+identical(round(RPKM,10), round(edgRPKM, 10)) #TRUE
+```
+But the arguments of the `rpkm` function allow further control, such as using **TMM** normalization (use `normalized.lib.sizes = TRUE` because TMM is the default for `calcNormFactors`) and getting log(RPKM) (by adding a small count to zero values). Note that edgeR also has a `rpkmByGroup` function.  
+  
+  
+One issue with RPKM values is that the sum of RPKMs differs between samples. This led to the introduction of the **TPM** (Transcript per million, see this [video](https://youtu.be/TTUrtCY2k-w) for a very clear explanation on the difference between RPKM/FPKM and TPM).  
+The principle of the normalization (scaling for both gene length and sequencing depth) is exactly the same but the order in which the scalings are performed differs: in TPM, we first scale the data by gene length and then scale for sequencing depth (i.e. sample sums of RPK or reads per kilobase).  
+Using the rough estimates that we have of gene lengths, we can calculate TPM from the count matrix using this [code by Michael Love](https://support.bioconductor.org/p/91218/):
+
+```{r RNAseq TPM values, eval=FALSE}
+#geneLengths is in Kb
+tpm_fun <- function(countMatrix, geneLengths) {
+    x <- countMatrix / geneLengths #get RPK
+    tpm.mat <- t( t(x) * 1e6 / colSums(x) ) #Scale for sequencing depth
+    return(tpm.mat)
+}
+
+TPM <- tpm_fun(assays(ct)$counts,
+               GeneLengthInKb)
+```
+
+```{r saveTPM, eval=FALSE, include=FALSE}
+saveRDS(TPM, "../RData/TPM.rds")
+```
+Now the sum of counts is equal to 1e6 for all samples  
+  
+TPM values can also be obtained using [RSEM](https://github.com/deweylab/RSEM), a software that also provides credibility intervals for these values as well as estimates for isoforms abundances [@pmid21816040].  
+
+<!-- TODO: add example of TPM with RSEM -->
+
+More recently, it was realized that classical spliced-read alignment on the genome was not indispensable to evaluate where the reads come from and thus quantitate gene/transcript expression. Base on this idea, [Kallisto](https://pachterlab.github.io/kallisto/) [@pmid27043002] and then [Salmon](https://combine-lab.github.io/salmon/) [@pmid28263959] were developed. They are based on the concept of pseudoalignment which relies on the use of kmers and graphs to evaluate from which gene/transcript the read originated, the only essential information necessary for quantification. These two softwares appear to give highly similar results in published benchmarks. The package [tximport](http://bioconductor.org/packages/release/bioc/html/tximport.html) can be used to inmport the results of RSEM, Salmon or Kallisto in R [@pmid26925227].
+
+<!-- TODO: add example with Salmon -->
 
 
 ### Signal files for genome browser
@@ -447,40 +528,357 @@ mybam <- readGAlignments(file.path(bampath,
                                    "SRR2084596_chr1920_Aligned.sortedByCoord.out.bam"))
 # !! for RNA-seq do not convert the reads to granges because spliced reads would results in coverage on the introns
 covbam <- coverage(grglist(mybam))
-#At this step it is generally necessary to normalize
-rtracklayer(export(covbam), "myProfile.bigwig")
+```
+At this step it is generally necessary to normalize the coverage vector (e.g. by library size). We can also combine different profiles (e.g. calculate group averages, differences or ratios of profiles, etc.).  
+
+The [rtracklayer](http://bioconductor.org/packages/release/bioc/html/rtracklayer.html) package is extremely useful to import/export genomic data in R. We use it to export the profile in bigwig format:
+```{r RNAseq export profile, eval=FALSE, message=FALSE, warning=FALSE}
+rtracklayer::export(covbam, "myProfile.bigwig")
 ```
 
-The [rtracklayer](http://bioconductor.org/packages/release/bioc/html/rtracklayer.html) package is also very useful to import different profiles and perform operations on them (e.g. calculate averages, differences or ratios of profiles). 
-All these signal files can then be vizualized on a genome browser.
+The signal files can then be vizualized on a genome browser such as [IGV](http://software.broadinstitute.org/software/igv/), [jbrowse](https://jbrowse.org/) or [gbrowse](https://www.gbrowse.org/).
 
   
 ## ChIP-seq
 
+Useful resources to start with ChIP-seq include the guidelines published by the [ENCODE](https://www.encodeproject.org/) and [modENCODE](http://www.modencode.org/) consortia [@pmid22955991], reviews on ChIP-seq data analysis [e.g. @pmid24244136] and online courses (e.g. [using Bioconductor](https://www.bioconductor.org/help/course-materials/2016/CSAMA/lab-5-chipseq/Epigenetics.html)).  
+  
+
 ### Raw reads - QC - Trimming
+PAF1 ChIP-seq sample has been sequenced over 3 runs (single-end). The raw sequences were merged:
+```{bash, eval=FALSE}
+zcat ${basedir}/data/SRR208453{7..9}.fastq.gz > ${basedir}/data/PAF1_ChIPseq.fastq
+```
+Again, to limit computation times, all reads were aligned to the genome (with [Bowtie2](http://bowtie-bio.sourceforge.net/bowtie2/index.shtml)) and the reads mapping to chromosomes 19 and 20 (+ some unmapped reads) were kept and converted back to fastq.  
+The corresponding file is: `${basedir}/data/FilteredFastq/PAF1_ChIPseq_chr1920.fq.gz`  
+  
+  
+Analysis of the reads with [fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) shows a high quality of the sequences and a very low adapter contamination.
+```{bash, eval=FALSE}
+mkdir -p ${basedir}/ChIPseq/rawQC
+module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 
-[fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
-distribution of fragment length (paired end)
+  fastqc \
+    -o ${basedir}/ChIPseq/rawQC \
+    ${basedir}/data/FilteredFastq/PAF1_ChIPseq_chr1920.fq.gz
+```
+Based on this, we decide to not trim the reads and proceed with alignment.  
+  
 
-### Alignment and profiles
+### Alignment
 
-bwa or bowtie2
+We use [Bowtie2](http://bowtie-bio.sourceforge.net/bowtie2) to align the reads on chr19 and chr20:
 
+```{bash ChIPseq bowtie2 reads alignement, eval=FALSE}
+mkdir -p ${basedir}/ChIPseq/Aligned
+module load bioinfo/bowtie2-2.3.3.1 #on genologin cluster
+
+#decompress fastq file:
+gunzip -c ${fastqdir}/PAF1_ChIPseq_chr1920.fq.gz > ${fastqdir}PAF1_ChIPseq_chr1920.fq
+
+#variable
+fastqfile="${basedir}/data/filteredFastq/PAF1_ChIPseq_chr1920.fq"
+outfile="${basedir}/ChIPseq/Aligned/PAF1_ChIPseq_chr1920.sam"
+bowtie2Index="${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920"
+
+#run bowtie2
+bowtie2 \
+  --very-sensitive \
+  -p 4 \
+  -x "${bowtie2Index}" \
+  -U "${fastqfile}" \
+  -S "${outfile}"
+
+```
+
+Then we convert the SAM file to BAM using [samtools](http://www.htslib.org/):
+```{r ChIPseq sam2Sortedbam, eval=FALSE}
+module load bioinfo/samtools-1.4 #on genologin
+samtools view -b ${outfile} | samtools sort --threads 4 -o ${outfile%%.sam}.bam -
+```
+
+We can then mark the duplicate reads using e.g. [Picard tools](https://broadinstitute.github.io/picard/):
+```{bash ChIPseq markduplicates, eval=FALSE}
+module load bioinfo/picard-2.14.1 #sets the ${PICARD} variable on genologin
+
+java -Xmx8g -jar $PICARD MarkDuplicates \
+  INPUT=${outfile%%.sam}.bam \
+  OUTPUT=${outfile%%.sam}_MarkedDup.bam \
+  METRICS_FILE=${outfile%%.sam}_MarkedDupMetrics.log \
+  ASSUME_SORT_ORDER=coordinate
+
+#Cleanup (we keep only the file with read duplicates marked)
+rm ${outfile}
+rm ${outfile%%.sam}.bam
+```
+Duplicates could be directly removed with the option `REMOVE_DUPLICATES` of Picard or using samtools. Here there are relatively few duplicate reads (~2-3%). The benefit of removing duplicate reads is not always obvious [@pmid22522655] so we choose to keep them here.  
+  
+Index the BAM file:
+```{r ChIPseq index aligned read, eval=FALSE}
+AlignedReads="${outfile%%.sam}_MarkedDup.bam"
+samtools index ${AlignedReads}
+```
+  
+  
+After indexing, we can use samtools to get various statistics on the aligned reads:
+```{r ChIPseq stats on aligned reads, eval=FALSE}
+#aligned reads by chromosome using idxstats
+samtools idxstats ${AlignedReads} > ${AlignedReads%%.bam}.idxstats
+
+#QC passed/failed reads using flagstat
+samtools flagstat ${AlignedReads} > ${AlignedReads%%.bam}.flagstat
+
+#More statistics (here removing duplicates for illustrating purposes)
+samtools stats \
+  --remove-dups \
+${AlignedReads} > \
+${AlignedReads%%.bam}.bamstats
+
+#Plots  from these statistics can be generated using the plot-bamstats function present in the misc subfolder of samtools
+```
+
+
+### Signal profiles
+
+Signal profiles for downstream analysis and visualization in a genome browser can be obtained using different tools such as: [bedtools coverage/coverageBed](https://bedtools.readthedocs.io/en/latest/content/tools/coverage.html) or [deeptools bamCoverage](https://deeptools.readthedocs.io/en/develop/content/tools/bamCoverage.html).  
+As illustrated below, they can also be obtained with the peak caller [MACS2](https://github.com/taoliu/MACS).   
+
+  In single-end sequencing, the 5'-> 3' orientation of sequencing and the short read length creates a bias in read distribution between the +/- strands [@pmid20628599]:
+  
+![**A. Punctuate mark (e.g. TF)  
+  B. Broad mark (e.g. RNAPII)**](figs/ChIPseq_reads_pmid20628599.png)  
+  
+  Because we want the signal file to represent the location of the protein that was IPed, we need to either extend the reads to the fragment size d, or to shift them by d/2.  
+  There are different methods to estimate the fragment size from a single-end ChIP-seq library, for example the [SPP](http://compbio.med.harvard.edu/Supplements/ChIP-seq/) peak caller widely used by ENCODE does that.  
+
+In R, we can use:
+```{r ChIPseq coverage in R, eval=FALSE, message=FALSE, warning=FALSE}
+# cd ${basedir}/ChIPseq/Aligned
+# module load system/R-3.4.3 #on genologin cluster (choose the right version for you)
+library(chipseq)
+library(GenomicAlignments)
+
+#import BAM
+paf1bam <- readGAlignments("PAF1_ChIPseq_chr1920_MarkedDup.bam")
+#estimate fragment length
+fraglen <- chipseq::estimate.mean.fraglen(granges(paf1bam)) #method="correlation" for SPP-like
+#get coverage on extended reads (~200bp)
+paf1cov <- coverage(resize(granges(paf1bam), 200))
+```
+If necessary, this coverage vector can be normalized (e.g. by library size) or combined with other data (e.g. input DNA, other ChIP-seq profiles). It can then be exported using:
+```{r export PAF1 coverage, eval=FALSE, message=FALSE, warning=FALSE}
+library(rtracklayer)
+rtracklayer::export(paf1cov, "PAF1_coverage.bigwig")
+```
+  
+```{r saveRDS paf1cov, eval=FALSE}
+saveRDS(paf1cov, "../RData/paf1cov.rds")
+```
+
+  
+**A comment about fragment length:**  
+Here, we have single-end reads but when paired-end reads are available, it is a good idea to look at the distribution of fragment lengths. In ChIP-seq and depending on the fragmentation and library preparation steps, fragment sizes carries biologically meaningfull information. For example, highly accessible regions such as enhancers or active promoters are more likely to yield small ChIP-seq fragments. Nucleosomes-derived fragments are typically in the ~150bp range. Longer fragments may be enriched for compact heterochromatin.  
+  
+  
 ### Peak calling
 
-MACS, SICER, etc.
+There are several tools to perform peak calling. [MACS2](https://github.com/taoliu/MACS) and [SPP](https://www.encodeproject.org/software/spp/) are heavily used by the [ENCODE](https://www.encodeproject.org/) project. We can also mention [SICER](https://home.gwu.edu/~wpeng/Software.htm) for braod regions or [GEM/GPS](http://groups.csail.mit.edu/cgs/gem/) for punctuate regions.
+
+Here we illustrate the use of MACS2:
+```{bash, ChIPseq MACS2, eval=FALSE}
+module load system/Python-2.7.2 #on genologin cluster
+
+macs2 callpeak \
+    -t ${AlignedReads} \
+    -n macs2_PAF1 \
+    -g dm \
+    --nomodel \
+    --extsize 200 \
+    -p 0.01 \
+    -B \
+&> ${basedir}/log/macs2_PAF1.log
+
+```
+
+  - We use the `-g dm` argument here because chr19+chr20 are ~ the size of the Drosophila genome  
+  - We use the options: `--nomodel --extsize 200` because we have already estimated fragment length (and MACS2 model has too few peaks here to reliably estimate the fragment size)
+  - With the `-B` argument, MACS2 also produces bedgraph files for fragments pilup, -log10(pvalue) and -log10(qalue). 
+  - The `p 0.001` argument relaxes a bit the default threshold of MACS2 (q-value<0.05) in order to detect more peaks  
+
+
+[IDR pipeline](https://www.encodeproject.org/software/idr/)
+
 
 ### Peak annotation
 
-ChIPpeakanno
+Annotating peaks means evaluating where these peaks are located relative to genomic features (e.g. promoters, gene body, exon/intron, etc.). Here we use Bioconductor tools to do it:  
+  
+First we import the peaks obtained with MACS2 using the package [genomation](http://bioconductor.org/packages/release/bioc/html/genomation.html):
+```{r import macs2 peaks in R, eval=FALSE, message=FALSE, warning=FALSE}
+# cd ${basedir}/ChIPseq/Aligned
+# module load system/R-3.4.3 #on genologin cluster (choose the right version for you)
+paf1Peaks <- genomation::readNarrowPeak("macs2_PAF1_peaks.narrowPeak")
+```
+
+Next we need annotations which are obtained from the GTF file using the [GenomicFeatures](http://bioconductor.org/packages/release/bioc/html/GenomicFeatures.html) package:
+```{r import gtf annotations in R, eval=FALSE, message=FALSE, }
+basedir="/work/pmartin/PROJECTS/RNAseqChIPseq"
+txdb <- GenomicFeatures::makeTxDbFromGFF(file.path(basedir, 
+                                                   "bank", 
+                                                   "gencode.v28.annotation_chr1920.gtf"))
+```
+
+The [ChIPseeker](http://bioconductor.org/packages/release/bioc/html/ChIPseeker.html) package is used to annotate the peaks. The [ChIPpeakAnno](http://bioconductor.org/packages/release/bioc/html/ChIPpeakAnno.html) is also interesting for this task.
+```{r ChIPseq PAF1 peak annotation ChIPseeker, eval=FALSE, message=FALSE, warning=FALSE}
+paf1peakanno <- ChIPseeker::annotatePeak(paf1Peaks,
+                                         tssRegion=c(-1000, 1000),
+                                         TxDb=txdb)
+```
+Note that there is a default priority in genomic annotations (i.e., by default, a peak annotated as *"Promoter"* will not be annotated in another genomic category). This can be modified with the `genomicAnnotationPriority` argument.  
+
+```{r saveRDS paf1peakanno, eval=FALSE, include=FALSE}
+saveRDS(paf1peakanno, "../RData/paf1peakanno.rds")
+```
+
+```{r readRDS paf1peakanno, eval=TRUE, include=FALSE}
+paf1peakanno <- readRDS("../RData/paf1peakanno.rds")
+```
+
+The results of the enrichment can be visualized using a barplot:
+```{r ChIPseq plotAnnoBar, fig.height=3, fig.align = "center", message=FALSE}
+ChIPseeker::plotAnnoBar(paf1peakanno)
+```
+
+But the overlaps in peak annotations are best illustrated with an [Upset plot](https://github.com/hms-dbmi/UpSetR) [@pmid26356912; @pmid28645171]:
+```{r ChIPseq upsetplot, fig.height=5, fig.width=9, fig.align = "center"}
+ChIPseeker::upsetplot(paf1peakanno, vennpie=TRUE)
+```
+
 
 ### Extracting profiles around genomic features
 
-Average profiles and heatmaps
-genomation
-EnrichedHeatmap
+Another way to look at the data is to extract profiles around specific genomic features. The [genomation](http://bioconductor.org/packages/release/bioc/html/genomation.html) and [EnrichedHeatmap](https://bioconductor.org/packages/release/bioc/html/EnrichedHeatmap.html) packages provides interesting functions for this task. For illustrative purpose we do it more "manually" here:  
+
+We use the `paf1cov` object created earlier.  
+```{r readRDS paf1cov, eval=FALSE, include=FALSE}
+paf1cov <- readRDS("../RData/paf1cov.rds")
+```
+
+And obtain the location of the TSS from the `txdb` object:
+```{r ChIPseq get TSS region, eval=FALSE}
+txBygn <- GenomicFeatures::transcriptsBy(txdb, "gene")
+tss <- unique(unlist(promoters(txBygn, upstream=0, downstream=1)))
+```
+
+We can now extract the profiles of PAF1 in a region of TSS+/-1Kb using:
+```{r ChIPseq get PAF1 profile around TSS, eval=FALSE}
+paf1prof <- paf1cov[tss + 1000]
+names(paf1prof) <- tss$tx_id
+paf1prof[strand(tss)=="-"] <- lapply(paf1prof[strand(tss)=="-"], rev)
+```
+
+```{r saveRDS paf1prof, eval=FALSE, include=FALSE}
+saveRDS(paf1prof, "../RData/paf1prof.rds")
+```
+
+```{r readRDS paf1prof, eval=TRUE, include=FALSE}
+paf1prof <- readRDS("../RData/paf1prof.rds")
+```
+
+We convert this `RleList` as a `matrix`:
+```{r ChIPseq convert paf1prof to matrix, eval=FALSE}
+paf1profmat <- matrix(as.numeric(unlist(paf1prof, use.names=FALSE)),
+                                 nrow = length(paf1prof),
+                                 byrow = TRUE,
+                                 dimnames = list(names(paf1prof), NULL))
+```
+
+We can plot this matrix as a heatmap using e.g. the [EnrichedHeatmap](https://bioconductor.org/packages/release/bioc/html/EnrichedHeatmap.html) package. By simplicity we only plot the top 500 genes in terms of PAF1 signal in the region between the TSS and the TSS+500bp.  
+We first select the genes
+```{r ChIPseq select genes for heatmap, eval=FALSE}
+avgpaf1 <- apply(paf1profmat[,1001:1501], 1, mean)
+paf1profmat_sel <- paf1profmat[order(avgpaf1, decreasing = TRUE),][1:500,]
+```
+
+Then we average the signal in bins of 10bp:
+```{r ChIPseq average signal in bins of 10bp, eval=FALSE}
+paf1profmat_sel <- t(apply(paf1profmat_sel, 1, tapply,
+                         c(rep(1:100, each = 10),
+                           101,
+                           rep(102:201, each = 10)),
+                         mean))
+```
+
+
+And convert the matrix so that it is recognized by the `EnrichedHeatmap` function:
+```{r ChIPseq prepare TSS mat, eval=FALSE}
+paf1TSSmat <- paf1profmat_sel[,-101]
+attr(paf1TSSmat, "upstream_index") <- 1:100
+attr(paf1TSSmat, "target_index") <- numeric(0)
+attr(paf1TSSmat, "downstream_index") <- 101:200
+attr(paf1TSSmat, "extend") <- c(1000,1000)
+attr(paf1TSSmat, "signal_name") <- "PAF1"
+attr(paf1TSSmat, "target_name") <- "TSS"
+attr(paf1TSSmat, "target_is_single_point") <- TRUE
+class(paf1TSSmat) = c("normalizedMatrix", "matrix")
+```
+
+```{r ChIPseq saveRDS paf1TSSmat, eval=FALSE, include=FALSE}
+saveRDS(paf1TSSmat, "../RData/paf1TSSmat.rds")
+```
+
+```{r ChIPseq readRDS paf1TSSmat, eval=TRUE}
+paf1TSSmat <- readRDS("../RData/paf1TSSmat.rds")
+```
+
+Then we plot them:
+```{r ChIPseq heatmap, message=FALSE, warning=FALSE, fig.width = 3, fig.align = "center"}
+library(EnrichedHeatmap)
+col_fun = circlize::colorRamp2(c(0, 30), c("white", "red"))
+EnrichedHeatmap(paf1TSSmat,
+                row_order=1:nrow(paf1TSSmat),
+                col=col_fun,
+                name="PAF1",
+                axis_name=c('-1Kb','TSS','+1Kb'))
+
+```
+
+The `EnrichedHeatmap` already provides an average profile over the region. But we can easily obtain it as follow:  
+
+We calculate the average signal at each position: 
+```{r ChIPseq calculate average profile, eval=FALSE}
+avgprof <- apply(paf1profmat, 2, mean)
+```
+
+```{r ChIPseq saveRDS avgprof, eval=FALSE, include=FALSE}
+saveRDS(avgprof, "../RData/avgprof.rds")
+```
+
+```{r ChIPseq readRDS avgprof, eval=TRUE, include=FALSE}
+avgprof <- readRDS("../RData/avgprof.rds")
+```
+
+And plot the average profile:
+```{r ChIPseq plot avgprof, eval=TRUE, fig.align = "center"}
+plot(-1000:1000,
+     avgprof, 
+     type="l",
+     lwd=2,
+     axes=FALSE,
+     xlab="Position relative to TSS",
+     ylab="Average coverage (reads)")
+axis(side=1,
+     at=c(-1000, 0, 1000),
+     labels = c("-1Kb", "TSS", "+1Kb"))
+axis(side = 2)
+```
+
 
 ### Extracting sequences for motif search
+
+Using the Biostrings package, we can easily extract sequences to be analyzed for motif enrichment.  
+Here we extract the core promoter sequences of genes with a PAF1 peak at less than 1Kb from their TSS:  
+
 
 Biostrings
 => RSAT, MEME, etc.
