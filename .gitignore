@@ -5,4 +5,7 @@
 *.Rproj
 paper
 bin
+data
+tmp
+RData
 

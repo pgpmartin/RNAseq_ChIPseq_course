@@ -219,7 +219,7 @@ div.tocify {
 
 <h1 class="title toc-ignore">RNA-seq and ChIP-seq data analysis</h1>
 <h4 class="author"><em>Pascal</em></h4>
-<h4 class="date"><em>15 octobre 2018</em></h4>
+<h4 class="date"><em>17 octobre 2018</em></h4>
 
 </div>
 
@@ -259,10 +259,12 @@ div.tocify {
 <pre class="bash"><code>basedir=&quot;/work/pmartin/PROJECTS/RNAseqChIPseq&quot;
 # replace pmartin by your username if you work on GenoToul cluster
 
-mkdir -p ${basedir}/RNAseq
-mkdir -p ${basedir}/ChIPseq
+mkdir -p ${basedir}/RNAseq/Aligned
+mkdir -p ${basedir}/ChIPseq/Aligned
+mkdir -p ${basedir}/data
 mkdir -p ${basedir}/bank
 mkdir -p ${basedir}/log
+mkdir -p ${basedir}/tmp
 
 selectedChromosomes=&quot;chr19 chr20&quot;</code></pre>
 <p></br></p>
@@ -286,9 +288,17 @@ gunzip GRCh38.primary_assembly.genome.fa.gz</code></pre>
 </ul>
 <pre class="bash"><code>cd ${basedir}/bank
 module load bioinfo/samtools-1.8 #on genologin cluster
+
 samtools index GRCh38.primary_assembly.genome.fa
-samtools faidx GRCh38.primary_assembly.genome.fa ${selectedChromosomes} &gt; GRCh38.primary_assembly.chr1920.fa
+
+samtools faidx \
+    GRCh38.primary_assembly.genome.fa \
+    ${selectedChromosomes} \
+    &gt; \
+    GRCh38.primary_assembly.chr1920.fa
+
 samtools index GRCh38.primary_assembly.chr1920.fa
+
 rm GRCh38.primary_assembly.genome.fa</code></pre>
 </div>
 <div id="annotations-gtf-file" class="section level4">
@@ -300,9 +310,9 @@ gunzip gencode.v28.annotation.gtf.gz
 </code></pre>
 <p>And select the annotations from chr19 and chr20 only:</p>
 <pre class="bash"><code>awk '$1 ~ /^##.+/ || $1==&quot;chr19&quot;|| $1==&quot;chr20&quot;' \
-gencode.v28.annotation.gtf \
-&gt; \
-gencode.v28.annotation_chr1920.gtf
+    gencode.v28.annotation.gtf \
+    &gt; \
+    gencode.v28.annotation_chr1920.gtf
 
 #Cleanup
 rm gencode.v28.annotation.gtf</code></pre>
@@ -316,11 +326,11 @@ rm gencode.v28.annotation.gtf</code></pre>
 module load bioinfo/STAR-2.6.0c #on genologin cluster
 
 STAR \
---runThreadN 4 \
---runMode genomeGenerate \
---genomeDir ${basedir}/bank/star_index \
---genomeFastaFiles ${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
---sjdbGTFfile ${basedir}/bank/gencode.v28.annotation_chr1920.gtf \
+    --runThreadN 4 \
+    --runMode genomeGenerate \
+    --genomeDir ${basedir}/bank/star_index \
+    --genomeFastaFiles ${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+    --sjdbGTFfile ${basedir}/bank/gencode.v28.annotation_chr1920.gtf \
 </code></pre>
 </div>
 <div id="bowtie2-index" class="section level4">
@@ -331,10 +341,10 @@ STAR \
 module load bioinfo/bowtie2-2.3.4.1 #on genologin cluster
 
 bowtie2-build \
---threads 4 \
---seed 123 \
-${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
-${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920 \
+    --threads 4 \
+    --seed 123 \
+    ${basedir}/bank/GRCh38.primary_assembly.chr1920.fa \
+    ${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920 \
 </code></pre>
 </div>
 <div id="transcripts-sequences" class="section level4">
@@ -355,13 +365,15 @@ wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR208/009/SRR2084599/SRR2084599.fastq.g
 <p>We can also download the SRA file (lighter) and then extract the fastq file using the <a href="https://www.ncbi.nlm.nih.gov/books/NBK158900/">SRA toolkit</a> but this is rather slow too:</p>
 <pre class="bash"><code>wget ftp://ftp.sra.ebi.ac.uk/vol1/srr/SRR208/008/SRR2084598
 fastq-dump SRR2084598</code></pre>
-<p>A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.</p>
+<p><strong>Faster download with aspera client:</strong> A very nice tutorial on how to download such large files faster is available <a href="https://www.biostars.org/p/325010/">here</a>.</p>
 <p>First install the <a href="http://www.asperasoft.com/en/downloads/2">Aspera client</a>.</p>
 <p>Then go to the <a href="https://www.ebi.ac.uk/ena">EBI ENA</a> and search for <code>GSE70408</code><br />
-In the experiment page, select columns: <strong>Study accession</strong>, <strong>Library Layout</strong>, <strong>FASTQ files (FTP)</strong> and <strong>Experiment title</strong> and export the table as text.</p>
+In the experiment page, select columns: <em>Study accession</em>, <em>Library Layout</em>, <em>FASTQ files (FTP)</em> and <em>Experiment title</em> and export the table as text.</p>
 <p>Now we use <a href="https://www.r-project.org/">R</a> to extract the files we want and prepare the links for fast download:</p>
-<pre class="r"><code>#All the files:
-gse70408 &lt;- read.table(file.path(&quot;../data&quot;,&quot;PRJNA288695.txt&quot;), 
+<pre class="r"><code>basedir=&quot;/work/pmartin/PROJECTS/RNAseqChIPseq&quot;
+
+#All the files:
+gse70408 &lt;- read.table(file.path(basedir, &quot;tmp&quot;, &quot;PRJNA288695.txt&quot;), 
                        sep=&quot;\t&quot;, header=T)
 
 #Selected files:
@@ -376,14 +388,20 @@ selgse70408$fasp_link &lt;- gsub(&quot;ftp.sra.ebi.ac.uk&quot;,
 
 #save the links
 write.table(selgse70408$fasp_link,
-            file.path(&quot;../data/downloadSelectedGSE70408.txt&quot;),
+            file.path(basedir, &quot;tmp&quot;, &quot;downloadSelectedGSE70408.txt&quot;),
             row.names = FALSE, col.names = FALSE, quote = FALSE)</code></pre>
 <p>Then download all the selected files using:</p>
-<pre class="bash"><code>cat downloadSelectedGSE70408.txt | while read LIST
+<pre class="bash"><code>cat $basedir/tmp/downloadSelectedGSE70408.txt | while read LIST
   do
-  $HOME/.aspera/connect/bin/ascp -QT -l 300m -P33001 -i $HOME/.aspera/connect/etc/asperaweb_id_dsa.openssh $LIST .
+  $HOME/.aspera/connect/bin/ascp \
+    -QT \
+    -l 300m \
+    -P33001 \
+    -i $HOME/.aspera/connect/etc/asperaweb_id_dsa.openssh \
+    $LIST \
+    .
   done</code></pre>
-<p>I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus a few % of unmapped reads to make it more realistic 😉). The filtered reads are in the data folder.</p>
+<p>I have then filtered these fastq files to keep only reads mapping to chromosomes 19 and 20 (plus a few % of unmapped reads to make it more realistic 😉). The filtered reads are in the <code>data</code> folder.</p>
 <p></br></p>
 </div>
 </div>
@@ -401,11 +419,9 @@ module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 
 for fn in SRR20845{96..99}
   do
-
   fastqc \
     -o ${basedir}/RNAseq/rawQC \
-    ${basedir}/data/FilteredFastq/${fn}_chr1920.fq.gz \
-    
+    ${basedir}/data/${fn}_chr1920.fq.gz
   done</code></pre>
 </div>
 <div id="trimming" class="section level4">
@@ -418,10 +434,7 @@ for fn in SRR20845{96..99}
 <div id="alignment" class="section level3">
 <h3>Alignment</h3>
 <p>Align the reads to the “genome” (here only chr19 and chr20) using STAR:</p>
-<pre class="bash"><code>mkdir -p ${basedir}/RNAseq/Aligned
-module load bioinfo/STAR-2.6.0c #on genologin cluster
-
-fastqdir=${basedir}/data/filteredFastq
+<pre class="bash"><code>module load bioinfo/STAR-2.6.0c #on genologin cluster
 
 for fn in SRR208459{6..9}
 do
@@ -430,12 +443,12 @@ do
         --runMode alignReads \
         --runThreadN 4 \
         --genomeDir ${basedir}/bank/star_index \
-        --readFilesIn ${fastqdir}/${fn}_chr1920.fq.gz\
+        --readFilesIn ${basedir}/data/${fn}_chr1920.fq.gz\
         --readFilesCommand zcat \
         --outFileNamePrefix ${basedir}/RNAseq/Aligned/${fn}_chr1920_ \
         --outSAMtype BAM SortedByCoordinate \
         --quantMode TranscriptomeSAM GeneCounts \
-        --outWigType bedGraph \
+        --outWigType bedGraph
 
 done
 </code></pre>
@@ -447,21 +460,28 @@ The option <code>--outWigType bedGraph</code> produces bedgraph files that can b
 <div id="counting-and-differential-expression-analysis" class="section level3">
 <h3>Counting and differential expression analysis</h3>
 <p>In addition to STAR (see above), there are several other options to count reads (including splice reads) on genomic features such as genes. An early and still popular solution with python is <a href="https://github.com/simon-anders/htseq">HTseq</a>. Another efficient tool is <a href="http://subread.sourceforge.net/">featureCounts</a> that is also accessible in R via the <a href="http://bioconductor.org/packages/release/bioc/html/Rsubread.html">Rsubread</a> package.</p>
-<p>Although less memory efficient, it is also possible to use the <code>summarizeOverlaps</code> function of the <a href="http://bioconductor.org/packages/release/bioc/html/GenomicAlignments.html">GenomicAlignments</a> package from Bioconductor:</p>
-<pre class="r"><code>#module load system/R-3.4.3 #on genologin cluster (choose the right version for you)
-library(GenomicAlignments)
-#Prepare the annotations:
+<p>Here we illustrate the use of the <code>summarizeOverlaps</code> function of the <a href="http://bioconductor.org/packages/release/bioc/html/GenomicAlignments.html">GenomicAlignments</a> package from Bioconductor.</p>
+<p>First we need the annotations (here the exons of each gene). We could use the annotations provided by Bioconductor:</p>
+<pre class="r"><code>#Prepare the annotations:
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 txdb &lt;- GenomeInfoDb::keepSeqlevels(TxDb.Hsapiens.UCSC.hg38.knownGene,
                                     c(&quot;chr19&quot;, &quot;chr20&quot;),
                                     pruning.mode = &quot;coarse&quot;)
-hg38exBygn &lt;- exonsBy(txdb, by=&quot;gene&quot;)
+exBygn_hg38 &lt;- exonsBy(txdb, by=&quot;gene&quot;)</code></pre>
+<p>But to remain consistent (e.g. with STAR GeneCounts) we will make our own TxDb object from the <a href="https://www.gencodegenes.org/">Gencode</a> GTF file using the <a href="http://bioconductor.org/packages/release/bioc/html/GenomicFeatures.html">GenomicFeatures</a> package:</p>
+<pre class="r"><code>library(GenomicFeatures)
+txdb &lt;- makeTxDbFromGFF(file.path(basedir, 
+                                  &quot;bank&quot;, 
+                                  &quot;gencode.v28.annotation_chr1920.gtf&quot;))
+exBygn_gc &lt;- exonsBy(txdb, by=&quot;gene&quot;)</code></pre>
+<pre class="r"><code>#module load system/R-3.4.3 #on genologin cluster
+library(GenomicAlignments)
 
 # Bam files:
 bampath &lt;- &quot;/work/pmartin/PROJECTS/RNAseqChIPseq/RNAseq/Aligned&quot;
 bamfn &lt;- BamFileList(dir(bampath, pattern=&quot;*.sortedByCoord.out.bam$&quot;, full=TRUE))
 
-ct &lt;- summarizeOverlaps(hg38exBygn,
+ct &lt;- summarizeOverlaps(exBygn_gc,
                         bamfn,
                         mode = &quot;Union&quot;,
                         singleEnd=TRUE,
@@ -491,111 +511,115 @@ SRR2084599
 <tbody>
 <tr>
 <td style="text-align:left;">
-1
+ENSG00000000419.12
 </td>
 <td style="text-align:right;">
-18
+1127
 </td>
 <td style="text-align:right;">
-13
+1767
 </td>
 <td style="text-align:right;">
-18
+1104
 </td>
 <td style="text-align:right;">
-7
+1618
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-100
-</td>
-<td style="text-align:right;">
-267
-</td>
-<td style="text-align:right;">
-342
-</td>
-<td style="text-align:right;">
-316
-</td>
-<td style="text-align:right;">
-356
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-100049587
-</td>
-<td style="text-align:right;">
-0
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0
-</td>
-<td style="text-align:right;">
-1
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-10005
-</td>
-<td style="text-align:right;">
-124
-</td>
-<td style="text-align:right;">
-168
-</td>
-<td style="text-align:right;">
-99
-</td>
-<td style="text-align:right;">
-119
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-100073347
-</td>
-<td style="text-align:right;">
-0
-</td>
-<td style="text-align:right;">
-0
-</td>
-<td style="text-align:right;">
-0
-</td>
-<td style="text-align:right;">
-0
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-100113382
-</td>
-<td style="text-align:right;">
-1
+ENSG00000004776.12
 </td>
 <td style="text-align:right;">
 6
 </td>
 <td style="text-align:right;">
-5
+8
 </td>
 <td style="text-align:right;">
-3
+4
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+ENSG00000004777.18
+</td>
+<td style="text-align:right;">
+31
+</td>
+<td style="text-align:right;">
+55
+</td>
+<td style="text-align:right;">
+48
+</td>
+<td style="text-align:right;">
+42
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+ENSG00000005007.12
+</td>
+<td style="text-align:right;">
+2675
+</td>
+<td style="text-align:right;">
+3560
+</td>
+<td style="text-align:right;">
+2343
+</td>
+<td style="text-align:right;">
+2940
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+ENSG00000005206.16
+</td>
+<td style="text-align:right;">
+260
+</td>
+<td style="text-align:right;">
+309
+</td>
+<td style="text-align:right;">
+430
+</td>
+<td style="text-align:right;">
+387
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+ENSG00000006015.17
+</td>
+<td style="text-align:right;">
+224
+</td>
+<td style="text-align:right;">
+314
+</td>
+<td style="text-align:right;">
+300
+</td>
+<td style="text-align:right;">
+360
 </td>
 </tr>
 </tbody>
 </table>
+<p>The other slots in ct:</p>
+<pre class="r"><code>slotNames(ct)
+#[1] &quot;rowRanges&quot;       &quot;colData&quot;         &quot;assays&quot;          &quot;NAMES&quot;          
+#[5] &quot;elementMetadata&quot; &quot;metadata&quot;       </code></pre>
 <p>The percentage of reads from the BAM files that were assigned to a gene model can be obtained with:</p>
 <pre class="r"><code>100 * colSums(assays(ct)$counts) / countBam(bamfn)$records
-# ~76-80%</code></pre>
+# ~78-83%</code></pre>
 <p>Using these counts, we can perform a differential expression analysis using e.g. <a href="http://bioconductor.org/packages/release/bioc/html/DESeq2.html">DESeq2</a>.<br />
 For this, we first prepare the data:</p>
 <pre class="r"><code>library(DESeq2)
@@ -612,13 +636,14 @@ dds &lt;- DESeqDataSetFromMatrix(countData = assays(ct)$counts,
 <pre class="r"><code>dds &lt;- DESeq(dds)</code></pre>
 <p>We get the number of DE genes (at FDR=5%) using:</p>
 <pre class="r"><code>sum(results(dds)$padj&lt;0.05, na.rm = TRUE)</code></pre>
-<pre><code>## [1] 193</code></pre>
-<p>The results table can be vizualized using:</p>
-<pre class="r"><code>head(results(dds))</code></pre>
+<pre><code>## [1] 198</code></pre>
+<p>The most significant genes can be vizualized using:</p>
+<pre class="r"><code>head(results(dds)[order(results(dds)$pvalue),])</code></pre>
 <table class="table table-striped table-condensed" style="font-size: 13px; width: auto !important; margin-left: auto; margin-right: auto;">
 <thead>
 <tr>
 <th style="text-align:left;">
+GeneID
 </th>
 <th style="text-align:right;">
 baseMean
@@ -643,145 +668,145 @@ padj
 <tbody>
 <tr>
 <td style="text-align:left;">
-1
+ENSG00000006712.14
 </td>
 <td style="text-align:right;">
-14.30
+729.6
 </td>
 <td style="text-align:right;">
-0.35
+-3.4
 </td>
 <td style="text-align:right;">
-0.853
+0.23
 </td>
 <td style="text-align:right;">
-0.411
+-15.0
 </td>
 <td style="text-align:right;">
-0.681322
+9e-51
 </td>
 <td style="text-align:right;">
-0.842792
+1e-47
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-100
+ENSG00000101255.10
 </td>
 <td style="text-align:right;">
-318.33
+2023.3
 </td>
 <td style="text-align:right;">
--0.14
+-1.7
 </td>
 <td style="text-align:right;">
-0.248
+0.20
 </td>
 <td style="text-align:right;">
--0.571
+-8.3
 </td>
 <td style="text-align:right;">
-0.567869
+9e-17
 </td>
 <td style="text-align:right;">
-0.765075
+6e-14
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-100049587
+ENSG00000125826.20
 </td>
 <td style="text-align:right;">
-0.46
+726.8
 </td>
 <td style="text-align:right;">
--0.04
+-2.1
 </td>
 <td style="text-align:right;">
-4.448
+0.25
 </td>
 <td style="text-align:right;">
--0.009
+-8.3
 </td>
 <td style="text-align:right;">
-0.992826
+1e-16
 </td>
 <td style="text-align:right;">
-NA
+6e-14
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-10005
+ENSG00000105289.14
 </td>
 <td style="text-align:right;">
-126.42
+286.6
 </td>
 <td style="text-align:right;">
-0.42
+-2.2
 </td>
 <td style="text-align:right;">
-0.322
+0.28
 </td>
 <td style="text-align:right;">
-1.295
+-7.6
 </td>
 <td style="text-align:right;">
-0.195462
+2e-14
 </td>
 <td style="text-align:right;">
-0.427552
+8e-12
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-100113382
+ENSG00000179262.9
 </td>
 <td style="text-align:right;">
-3.58
+790.0
 </td>
 <td style="text-align:right;">
--0.30
+-1.6
 </td>
 <td style="text-align:right;">
-1.586
+0.22
 </td>
 <td style="text-align:right;">
--0.188
+-7.4
 </td>
 <td style="text-align:right;">
-0.851191
+1e-13
 </td>
 <td style="text-align:right;">
-NA
+4e-11
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-100113393
+ENSG00000187994.13
 </td>
 <td style="text-align:right;">
-132.66
+310.0
 </td>
 <td style="text-align:right;">
-1.00
+-2.1
 </td>
 <td style="text-align:right;">
-0.323
+0.29
 </td>
 <td style="text-align:right;">
-3.083
+-7.4
 </td>
 <td style="text-align:right;">
-0.002051
+1e-13
 </td>
 <td style="text-align:right;">
-0.018038
+4e-11
 </td>
 </tr>
 </tbody>
 </table>
-<p>The DE genes can now be further studied (e.g. enrichment of GO annotations or specific pathwyas?) and integrated with other measurements (e.g. ChIP-seq)</p>
+<p>The DE genes can now be further studied (e.g. enrichment of GO annotations or specific pathways?) and integrated with other measurements (e.g. ChIP-seq)</p>
 <p></br></p>
 </div>
 <div id="estimates-of-expression-levels" class="section level3">
@@ -802,33 +827,49 @@ The necessity to scale the data by gene/transcript size raises questions such as
 <li>If a gene produces different transcripts in different samples (because e.g. splicing or initiation/termination of transcription have been affected by an experimental condition), should we scale by different gene sizes between samples?</li>
 </ul>
 <p>Because of such issues (and because of the stochasticity in the data), the actual gene expression levels can only be estimated from the count data. We can’t reliably tell if 2 genes with very close expression measures are actually expressed at different levels, but we can form groups of genes that faithfully represent e.g. low, moderate or high expression levels.</p>
-<p>Here, we use a simple way to estimate gene size. We take the median length of all transcripts annotated from that gene:</p>
-<pre class="r"><code>txsByGene &lt;- transcriptsBy(txdb, &quot;gene&quot;)
-GeneLength &lt;- median(width(txsByGene))
+<p>Here, we use a rather simple way to estimate gene size. We take the median length of all annotated transcripts for each gene:</p>
+<pre class="r"><code># Get exons by trancripts:
+exBytx &lt;- exonsBy(txdb, by=&quot;tx&quot;)
+# Get size of each transcript:
+txSize &lt;- sum(width(exBytx))
+# Get transcripts per gene and unlist
+txsByGene &lt;- unlist(transcriptsBy(txdb, &quot;gene&quot;))
+# Split transcripts sizes by gene name
+SizetxBygn &lt;- split(txSize[as.character(txsByGene$tx_id)], 
+                    names(txsByGene))
+#Get median transcript length by gene
+GeneLength &lt;- sapply(SizetxBygn, median)
 GeneLengthInKb &lt;- GeneLength / 1e3</code></pre>
 <p>The first, very intuitive, measure that was proposed is the <strong>RPKM</strong> (<em>R</em>eads <em>p</em>er <em>k</em>ilobase per <em>m</em>illion mapped reads) in which the number of reads is first normalized by the library size (the <em>reads per million</em> part) and then by gene length (the <em>reads per kilobase</em> part) and then by <span class="citation">(Mortazavi et al., 2008)</span>. When applied at the level of fragments sequenced from both ends using paired-end sequencing we use <strong>FPKM</strong> for fragment per kilobase per million mapped reads.</p>
 <p>We can calculate RPKM using:</p>
 <pre class="r"><code>#geneLengths is in Kb
 rpkm_fun &lt;- function(countMatrix, geneLengths) {
+#sanity check:
+    if (!identical(rownames(countMatrix),
+                   names(geneLengths))) {
+        stop(&quot;names of countMatrix and geneLengths don't match&quot;)
+    }
+#calculate rpkm:
     x &lt;- t( t(countMatrix) * 1e6 / colSums(countMatrix) ) # get RPM
     rpkm.mat &lt;- x / geneLengths # scale for gene length
     return(rpkm.mat)
 }
 
 RPKM &lt;- rpkm_fun(assays(ct)$counts,
-                 GeneLengthInKb)</code></pre>
+                 GeneLengthInKb[rownames(ct)])</code></pre>
 <p>We can obtain the same results using <a href="http://bioconductor.org/packages/release/bioc/html/edgeR.html">edgeR</a> functions:</p>
-<pre class="r"><code>edg &lt;- DGEList(assays(ct)$counts,
+<pre class="r"><code>library(edgeR)
+edg &lt;- DGEList(assays(ct)$counts,
                group = factor(rep(c(&quot;shPAF1&quot;,&quot;Ctrol&quot;), each=2)))
 edg &lt;- edgeR::calcNormFactors(edg)
 
 edgRPKM &lt;- rpkm(edg,
-                gene.length = GeneLength,
+                gene.length = GeneLength[rownames(ct)],
                 normalized.lib.sizes = FALSE,
                 log = FALSE, 
                 prior.count = 0)
 
-identical(round(RPKM,10), round(edgRPKM, 10)) #TRUE</code></pre>
+identical(round(RPKM,9), round(edgRPKM, 9)) #TRUE</code></pre>
 <p>But the arguments of the <code>rpkm</code> function allow further control, such as using <strong>TMM</strong> normalization (use <code>normalized.lib.sizes = TRUE</code> because TMM is the default for <code>calcNormFactors</code>) and getting log(RPKM) (by adding a small count to zero values). Note that edgeR also has a <code>rpkmByGroup</code> function.</p>
 <p>One issue with RPKM values is that the sum of RPKMs differs between samples. This led to the introduction of the <strong>TPM</strong> (Transcript per million, see this <a href="https://youtu.be/TTUrtCY2k-w">video</a> for a very clear explanation on the difference between RPKM/FPKM and TPM).<br />
 The principle of the normalization (scaling for both gene length and sequencing depth) is exactly the same but the order in which the scalings are performed differs: in TPM, we first scale the data by gene length and then scale for sequencing depth (i.e. sample sums of RPK or reads per kilobase).<br />
@@ -841,7 +882,7 @@ tpm_fun &lt;- function(countMatrix, geneLengths) {
 }
 
 TPM &lt;- tpm_fun(assays(ct)$counts,
-               GeneLengthInKb)</code></pre>
+               GeneLengthInKb[rownames(ct)])</code></pre>
 <p>Now the sum of counts is equal to 1e6 for all samples</p>
 <p>TPM values can also be obtained using <a href="https://github.com/deweylab/RSEM">RSEM</a>, a software that also provides credibility intervals for these values as well as estimates for isoforms abundances <span class="citation">(Li and Dewey, 2011)</span>.</p>
 <!-- TODO: add example of TPM with RSEM -->
@@ -873,28 +914,30 @@ covbam &lt;- coverage(grglist(mybam))</code></pre>
 <p>PAF1 ChIP-seq sample has been sequenced over 3 runs (single-end). The raw sequences were merged:</p>
 <pre class="bash"><code>zcat ${basedir}/data/SRR208453{7..9}.fastq.gz &gt; ${basedir}/data/PAF1_ChIPseq.fastq</code></pre>
 <p>Again, to limit computation times, all reads were aligned to the genome (with <a href="http://bowtie-bio.sourceforge.net/bowtie2/index.shtml">Bowtie2</a>) and the reads mapping to chromosomes 19 and 20 (+ some unmapped reads) were kept and converted back to fastq.<br />
-The corresponding file is: <code>${basedir}/data/FilteredFastq/PAF1_ChIPseq_chr1920.fq.gz</code></p>
+The corresponding file is: <code>${basedir}/data/PAF1_ChIPseq_chr1920.fq.gz</code></p>
 <p>Analysis of the reads with <a href="https://www.bioinformatics.babraham.ac.uk/projects/fastqc/">fastqc</a> shows a high quality of the sequences and a very low adapter contamination.</p>
 <pre class="bash"><code>mkdir -p ${basedir}/ChIPseq/rawQC
 module load bioinfo/FastQC_v0.11.7 #on genologin cluster
 
   fastqc \
     -o ${basedir}/ChIPseq/rawQC \
-    ${basedir}/data/FilteredFastq/PAF1_ChIPseq_chr1920.fq.gz</code></pre>
+    ${basedir}/data/PAF1_ChIPseq_chr1920.fq.gz</code></pre>
 <p>Based on this, we decide to not trim the reads and proceed with alignment.</p>
 <p></br></p>
 </div>
 <div id="alignment-1" class="section level3">
 <h3>Alignment</h3>
 <p>We use <a href="http://bowtie-bio.sourceforge.net/bowtie2">Bowtie2</a> to align the reads on chr19 and chr20:</p>
-<pre class="bash"><code>mkdir -p ${basedir}/ChIPseq/Aligned
-module load bioinfo/bowtie2-2.3.3.1 #on genologin cluster
+<pre class="bash"><code>module load bioinfo/bowtie2-2.3.3.1 #on genologin cluster
 
 #decompress fastq file:
-gunzip -c ${fastqdir}/PAF1_ChIPseq_chr1920.fq.gz &gt; ${fastqdir}PAF1_ChIPseq_chr1920.fq
+gunzip -c \
+  ${basedir}/data/PAF1_ChIPseq_chr1920.fq.gz \
+  &gt; \
+  ${basedir}/data/PAF1_ChIPseq_chr1920.fq
 
 #variable
-fastqfile=&quot;${basedir}/data/filteredFastq/PAF1_ChIPseq_chr1920.fq&quot;
+fastqfile=&quot;${basedir}/data/PAF1_ChIPseq_chr1920.fq&quot;
 outfile=&quot;${basedir}/ChIPseq/Aligned/PAF1_ChIPseq_chr1920.sam&quot;
 bowtie2Index=&quot;${basedir}/bank/bowtie2_index/GRCh38.primary_assembly.chr1920&quot;
 
@@ -908,7 +951,11 @@ bowtie2 \
 </code></pre>
 <p>Then we convert the SAM file to BAM using <a href="http://www.htslib.org/">samtools</a>:</p>
 <pre class="r"><code>module load bioinfo/samtools-1.4 #on genologin
-samtools view -b ${outfile} | samtools sort --threads 4 -o ${outfile%%.sam}.bam -</code></pre>
+samtools view -b ${outfile} \
+    | \
+    samtools sort \
+        --threads 4 \
+        -o ${outfile%%.sam}.bam -</code></pre>
 <p>We can then mark the duplicate reads using e.g. <a href="https://broadinstitute.github.io/picard/">Picard tools</a>:</p>
 <pre class="bash"><code>module load bioinfo/picard-2.14.1 #sets the ${PICARD} variable on genologin
 
@@ -921,7 +968,7 @@ java -Xmx8g -jar $PICARD MarkDuplicates \
 #Cleanup (we keep only the file with read duplicates marked)
 rm ${outfile}
 rm ${outfile%%.sam}.bam</code></pre>
-<p>Duplicates could be directly removed with the option <code>REMOVE_DUPLICATES</code> of Picard or using samtools. Here there are relatively few duplicate reads (~2-3%). The benefit of removing duplicate reads is not always obvious <span class="citation">(Chen et al., 2012)</span> so we choose to keep them here.</p>
+<p>Duplicates could be directly removed with the option <code>REMOVE_DUPLICATES</code> of Picard or using samtools. Here there are relatively few duplicate reads (~2-3%). The benefits of removing duplicate reads is not always obvious <span class="citation">(Chen et al., 2012)</span> so we choose to keep them here.</p>
 <p>Index the BAM file:</p>
 <pre class="r"><code>AlignedReads=&quot;${outfile%%.sam}_MarkedDup.bam&quot;
 samtools index ${AlignedReads}</code></pre>
@@ -1010,11 +1057,7 @@ The <a href="https://www.encodeproject.org/">ENCODE</a> consortium has developed
 <pre class="r"><code># cd ${basedir}/ChIPseq/Aligned
 # module load system/R-3.4.3 #on genologin cluster (choose the right version for you)
 paf1Peaks &lt;- genomation::readNarrowPeak(&quot;macs2_PAF1_peaks.narrowPeak&quot;)</code></pre>
-<p>Next we need annotations which are obtained from the GTF file using the <a href="http://bioconductor.org/packages/release/bioc/html/GenomicFeatures.html">GenomicFeatures</a> package:</p>
-<pre class="r"><code>basedir=&quot;/work/pmartin/PROJECTS/RNAseqChIPseq&quot;
-txdb &lt;- GenomicFeatures::makeTxDbFromGFF(file.path(basedir, 
-                                                   &quot;bank&quot;, 
-                                                   &quot;gencode.v28.annotation_chr1920.gtf&quot;))</code></pre>
+<p>We use the annotations obtained previously from the GTF file with the <code>makeTxDbFromGFF</code> from <a href="http://bioconductor.org/packages/release/bioc/html/GenomicFeatures.html">GenomicFeatures</a>.</p>
 <p>The <a href="http://bioconductor.org/packages/release/bioc/html/ChIPseeker.html">ChIPseeker</a> package is used to annotate the peaks. The <a href="http://bioconductor.org/packages/release/bioc/html/ChIPpeakAnno.html">ChIPpeakAnno</a> is also interesting for this task.</p>
 <pre class="r"><code>paf1peakanno &lt;- ChIPseeker::annotatePeak(paf1Peaks,
                                          tssRegion=c(-1000, 1000),

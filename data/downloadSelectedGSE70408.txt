@@ -1,7 +1,0 @@
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/006/SRR2084596/SRR2084596.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/007/SRR2084597/SRR2084597.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/008/SRR2084598/SRR2084598.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/009/SRR2084599/SRR2084599.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/007/SRR2084537/SRR2084537.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/008/SRR2084538/SRR2084538.fastq.gz
-era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR208/009/SRR2084539/SRR2084539.fastq.gz
