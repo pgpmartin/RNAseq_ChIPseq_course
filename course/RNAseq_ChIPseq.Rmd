@@ -557,7 +557,7 @@ But the arguments of the `rpkm` function allow further control, such as using **
   
   
 One issue with RPKM values is that the sum of RPKMs differs between samples. This led to the introduction of the **TPM** (Transcript per million, see this [video](https://youtu.be/TTUrtCY2k-w) for a very clear explanation on the difference between RPKM/FPKM and TPM).  
-The principle of the normalization (scaling for both gene length and sequencing depth) is exactly the same but the order in which the scalings are performed differs: in TPM, we first scale the data by gene length and then scale for sequencing depth (i.e. sample sums of RPK or reads per kilobase).  
+The rationale behind the normalization (scaling for both gene length and sequencing depth) is exactly the same but the order in which the scalings are performed differs: in TPM, we first scale the data by gene length and then scale for sequencing depth (i.e. sample sums of RPK or reads per kilobase).  
 Using the rough estimates that we have of gene lengths, we can calculate TPM from the count matrix using this [code by Michael Love](https://support.bioconductor.org/p/91218/):
 
 ```{r RNAseq TPM values, eval=FALSE}
@@ -581,7 +581,7 @@ TPM values can also be obtained using [RSEM](https://github.com/deweylab/RSEM), 
 
 <!-- TODO: add example of TPM with RSEM -->
 
-More recently, it was realized that classical spliced-read alignment on the genome was not indispensable to evaluate where the reads come from and thus quantitate gene/transcript expression. Base on this idea, [Kallisto](https://pachterlab.github.io/kallisto/) [@pmid27043002] and then [Salmon](https://combine-lab.github.io/salmon/) [@pmid28263959] were developed. They are based on the concept of pseudoalignment which relies on the use of kmers and graphs to evaluate from which gene/transcript the read originated, the only essential information necessary for quantification. These two softwares appear to give highly similar results in published benchmarks. The package [tximport](http://bioconductor.org/packages/release/bioc/html/tximport.html) can be used to inmport the results of RSEM, Salmon or Kallisto in R [@pmid26925227].
+More recently, it was realized that classical spliced-read alignment on the genome was not indispensable to evaluate where the reads come from and thus quantify gene/transcript expression. Based on this idea, [Kallisto](https://pachterlab.github.io/kallisto/) [@pmid27043002] and then [Salmon](https://combine-lab.github.io/salmon/) [@pmid28263959] were developed. They use the concept of pseudoalignment which relies on the use of kmers and graphs to evaluate from which gene/transcript the read originated, the only essential information necessary for quantification. These two softwares appear to give highly similar results in published benchmarks. The package [tximport](http://bioconductor.org/packages/release/bioc/html/tximport.html) can be used to inmport the results of RSEM, Salmon or Kallisto in R [@pmid26925227].
 
 <!-- TODO: add example with Salmon -->
 
